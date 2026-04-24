@@ -8,8 +8,7 @@ jobs:
   lint-and-test:
     name: Lint & Test
     runs-on: ubuntu-latest
-    if: false
-    
+
     steps:
       - uses: actions/checkout@v4
 
@@ -18,16 +17,12 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-          cache-dependency-path: backend/package-lock.json
 
       - name: Install dependencies
-        working-directory: backend
         run: npm ci
 
       - name: Run linter
-        working-directory: backend
         run: npm run lint
 
       - name: Run tests
-        working-directory: backend
         run: npm test
