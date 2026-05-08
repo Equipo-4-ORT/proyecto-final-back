@@ -1,39 +1,40 @@
 const prisma = require('../database/prisma');
+const logger = require('../utils/logger');
 
 /**
  * Busca un usuario por email. Si existe, actualiza sus datos de Google.
- * Si no existe, lo crea asignándole un rol según su dominio.
- * * @param {Object} googleData - Objeto devuelto por verifyGoogleIdToken
+ * Si no existe, lo crea con el rol default del schema de Prisma.
+ * @param {Object} googleData - Objeto devuelto por verifyGoogleToken
  * @returns {Object} - El usuario guardado en PostgreSQL
  */
-
 async function upsertGoogleUser(googleData) {
     const { email, googleId, fullName } = googleData;
 
-    //let assignedRole = 'USER';
-    //if (email.endsWith('@finnegans.com.ar')) {
-    //    assignedRole = 'EMPLOYEE';
-    //}
+    if (!email || !googleId) {
+        throw new Error('upsertGoogleUser: email y googleId son requeridos');
+    }
+
+    // Postgres trata el unique como case-sensitive: normalizar evita duplicar usuarios por casing
+    const normalizedEmail = email.toLowerCase().trim();
 
     try {
         const user = await prisma.user.upsert({
-            where:
-                { email: email },
+            where: { email: normalizedEmail },
             update: {
-                googleId: googleId,
-                fullName: fullName
+                googleId,
+                fullName
             },
             create: {
-                email: email,
-                googleId: googleId,
-                fullName: fullName,
-                //role: assignedRole // por ahora usaremos el default de prisma ya que todavia no estamos seguros de la logica de asignacion de roles
+                email: normalizedEmail,
+                googleId,
+                fullName
+                // TODO: asignar role según dominio de email cuando se defina la regla de negocio
             }
         });
         return user;
     } catch (error) {
-        console.error('Error al crear o actualizar usuario:', error);
-        throw new Error('No se pudo guardar el usuario en la base de datos');;
+        logger.error('Error al crear o actualizar usuario', { error });
+        throw new Error('No se pudo guardar el usuario en la base de datos', { cause: error });
     }
 }
 
