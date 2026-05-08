@@ -1,5 +1,5 @@
-const prisma = require('../database/prisma');
-const logger = require('../utils/logger');
+const prisma = require('../../shared/database/prisma');
+const logger = require('../../shared/utils/logger');
 
 /**
  * Busca un usuario por email. Si existe, actualiza sus datos de Google.
