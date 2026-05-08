@@ -7,7 +7,7 @@ const logger = require('../utils/logger');
  * @param {Object} googleData - Objeto devuelto por verifyGoogleToken
  * @returns {Object} - El usuario guardado en PostgreSQL
  */
-async function upsertGoogleUser(googleData) {
+const upsertGoogleUser = async (googleData) => {
     const { email, googleId, fullName } = googleData;
 
     if (!email || !googleId) {
@@ -36,7 +36,7 @@ async function upsertGoogleUser(googleData) {
         logger.error('Error al crear o actualizar usuario', { error });
         throw new Error('No se pudo guardar el usuario en la base de datos', { cause: error });
     }
-}
+};
 
 module.exports = {
     upsertGoogleUser

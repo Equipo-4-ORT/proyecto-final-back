@@ -12,7 +12,7 @@ const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
  * @param {string} token - El ID token enviado desde el frontend
  * @returns {object} - Los datos del usuario (claims)
  */
-async function verifyGoogleToken(token) {
+const verifyGoogleToken = async (token) => {
     if (!token || typeof token !== 'string') {
         throw new Error('Token requerido');
     }
@@ -42,7 +42,7 @@ async function verifyGoogleToken(token) {
         picture: payload['picture'],
         emailVerified: payload['email_verified']
     };
-}
+};
 
 module.exports = {
     verifyGoogleToken

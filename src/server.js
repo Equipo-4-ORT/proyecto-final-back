@@ -6,7 +6,7 @@ const logger = require('./shared/utils/logger');
 const PORT = process.env.PORT || 3000;
 const SHUTDOWN_TIMEOUT_MS = 10000;
 
-function setupGracefulShutdown(server) {
+const setupGracefulShutdown = (server) => {
     const gracefulShutdown = (signal) => {
         logger.info(`Recibida señal ${signal}, iniciando shutdown graceful...`);
 
@@ -40,9 +40,9 @@ function setupGracefulShutdown(server) {
     process.on('beforeExit', () => {
         logger.info('Proceso está a punto de terminar...');
     });
-}
+};
 
-async function startServer() {
+const startServer = async () => {
     try {
         await prisma.$connect();
         logger.info('Conexión a la base de datos PostgreSQL exitosa (Prisma)');
@@ -56,6 +56,6 @@ async function startServer() {
         logger.error('Error fatal al conectar a la base de datos', { error: error.message, stack: error.stack });
         process.exit(1);
     }
-}
+};
 
 startServer();
