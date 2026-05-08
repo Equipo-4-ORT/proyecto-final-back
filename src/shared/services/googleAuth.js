@@ -1,4 +1,9 @@
 const { OAuth2Client } = require('google-auth-library');
+const logger = require('../utils/logger');
+
+if (!process.env.GOOGLE_CLIENT_ID) {
+    throw new Error('GOOGLE_CLIENT_ID environment variable is required');
+}
 
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
@@ -7,35 +12,38 @@ const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
  * @param {string} token - El ID token enviado desde el frontend
  * @returns {object} - Los datos del usuario (claims)
  */
-
 async function verifyGoogleToken(token) {
+    if (!token || typeof token !== 'string') {
+        throw new Error('Token requerido');
+    }
+
+    let payload;
     try {
         const ticket = await client.verifyIdToken({
             idToken: token,
             audience: process.env.GOOGLE_CLIENT_ID
         });
-        const payload = ticket.getPayload();
-
-        //posible verificacion a la empresa finnegans
-        // if (!payload.email.endsWith('@finnegans.com')) {
-        //     throw new Error('Unauthorized: Email domain not allowed');
-        // }
-
-        return {
-            googleId: payload['sub'],
-            email: payload['email'],
-            name: payload['name'],
-            picture: payload['picture'],
-            emailVerified: payload['email_verified']
-        }
+        payload = ticket.getPayload();
     } catch (error) {
-        console.error('Error verifying Google token:', error);
-        throw new Error('Invalid Google token');
-
+        logger.error('Error verifying Google token', { error });
+        throw new Error('Invalid Google token', { cause: error });
     }
 
+    if (!payload.email_verified) {
+        throw new Error('Email no verificado por Google');
+    }
+
+    // TODO: validar dominio de email (ej: solo @finnegans.com.ar) cuando se defina la regla de negocio
+
+    return {
+        googleId: payload['sub'],
+        email: payload['email'],
+        fullName: payload['name'],
+        picture: payload['picture'],
+        emailVerified: payload['email_verified']
+    };
 }
 
 module.exports = {
     verifyGoogleToken
-}
+};

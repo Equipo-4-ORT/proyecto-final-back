@@ -1,4 +1,5 @@
 // tests/googleAuth.test.js
+process.env.GOOGLE_CLIENT_ID = 'test-client-id';
 const { verifyGoogleToken } = require('../../../src/shared/services/googleAuth');
 const { OAuth2Client } = require('google-auth-library');
 
