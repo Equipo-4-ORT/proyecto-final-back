@@ -1,0 +1,4 @@
+# These findings are test-only values in historical commits.
+# The current code was already fixed to use crypto.randomBytes() instead.
+0314f419d991190fc74402fcf231800ddbe04506:tests/shared/utils/crypto.test.js:generic-api-key:7
+1ffba6fdff14c2ae293a4385c8595bbe480cff36:tests/shared/utils/crypto.test.js:generic-api-key:7
