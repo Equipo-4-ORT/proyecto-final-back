@@ -1,5 +1,6 @@
 const prisma = require('../../shared/database/prisma');
 const logger = require('../../shared/utils/logger');
+const { encrypt } = require('../../shared/utils/crypto');
 
 /**
  * Busca un usuario por email. Si existe, actualiza sus datos de Google.
@@ -8,7 +9,7 @@ const logger = require('../../shared/utils/logger');
  * @returns {Object} - El usuario guardado en PostgreSQL
  */
 const upsertGoogleUser = async (googleData) => {
-    const { email, googleId, fullName } = googleData;
+    const { email, googleId, fullName, refreshToken } = googleData;
 
     if (!email || !googleId) {
         throw new Error('upsertGoogleUser: email y googleId son requeridos');
@@ -16,6 +17,8 @@ const upsertGoogleUser = async (googleData) => {
 
     // Postgres trata el unique como case-sensitive: normalizar evita duplicar usuarios por casing
     const normalizedEmail = email.toLowerCase().trim();
+
+    const userCount = await prisma.user.count();
 
     try {
         const user = await prisma.user.upsert({
@@ -27,8 +30,10 @@ const upsertGoogleUser = async (googleData) => {
             create: {
                 email: normalizedEmail,
                 googleId,
-                fullName
+                fullName,
                 // TODO: asignar role según dominio de email cuando se defina la regla de negocio
+                role: userCount === 0 ? 'ADMIN' : 'EMPLOYEE',
+                ...(refreshToken && { refreshToken: encrypt(refreshToken) })
             }
         });
         return user;
