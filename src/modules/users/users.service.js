@@ -18,9 +18,9 @@ const upsertGoogleUser = async (googleData) => {
     // Postgres trata el unique como case-sensitive: normalizar evita duplicar usuarios por casing
     const normalizedEmail = email.toLowerCase().trim();
 
-    const userCount = await prisma.user.count();
-
+    
     try {
+        const userCount = await prisma.user.count();
         const user = await prisma.user.upsert({
             where: { email: normalizedEmail },
             update: {
