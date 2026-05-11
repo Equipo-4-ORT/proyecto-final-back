@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const { requestLogger, errorHandler } = require('./shared/middleware');
+const authRoutes = require('./modules/auth/auth.routes');
 
 const app = express();
 
@@ -22,6 +23,8 @@ app.get('/health', (req, res) => {
         environment: process.env.NODE_ENV || 'development',
     });
 });
+
+app.use('/api/auth', authRoutes);
 
 // 3. Error Handler (SIEMPRE al final)
 app.use(errorHandler);
