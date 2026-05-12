@@ -1,15 +1,15 @@
 const prisma = require('../../shared/database/prisma');
 const logger = require('../../shared/utils/logger');
-const { encrypt } = require('../../shared/utils/crypto');
+const { asignarRol } = require('../auth/auth.service');
 
 /**
  * Busca un usuario por email. Si existe, actualiza sus datos de Google.
- * Si no existe, lo crea con el rol default del schema de Prisma.
+  * Si no existe, lo crea con el rol asignado según la llave de admin.
  * @param {Object} googleData - Objeto devuelto por verifyGoogleToken
  * @returns {Object} - El usuario guardado en PostgreSQL
  */
-const upsertGoogleUser = async (googleData) => {
-    const { email, googleId, fullName, refreshToken } = googleData;
+const upsertGoogleUser = async (googleData, adminKey) => {
+    const { email, googleId, fullName } = googleData;
 
     if (!email || !googleId) {
         throw new Error('upsertGoogleUser: email y googleId son requeridos');
@@ -18,9 +18,9 @@ const upsertGoogleUser = async (googleData) => {
     // Postgres trata el unique como case-sensitive: normalizar evita duplicar usuarios por casing
     const normalizedEmail = email.toLowerCase().trim();
 
-    
+
     try {
-        const userCount = await prisma.user.count();
+        const role = asignarRol(adminKey);
         const user = await prisma.user.upsert({
             where: { email: normalizedEmail },
             update: {
@@ -31,9 +31,7 @@ const upsertGoogleUser = async (googleData) => {
                 email: normalizedEmail,
                 googleId,
                 fullName,
-                // TODO: asignar role según dominio de email cuando se defina la regla de negocio
-                role: userCount === 0 ? 'ADMIN' : 'EMPLOYEE',
-                ...(refreshToken && { refreshToken: encrypt(refreshToken) })
+                role
             }
         });
         return user;
