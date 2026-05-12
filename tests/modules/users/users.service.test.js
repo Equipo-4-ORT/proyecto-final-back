@@ -3,51 +3,34 @@ const nodeCrypto = require('crypto');
 // La key DEBE setearse ANTES del require de users.service
 process.env.ENCRYPTION_KEY = nodeCrypto.randomBytes(32).toString('hex');
 
-const { upsertGoogleUser } = require('../../../src/modules/users/users.service');
-const prisma = require('../../../src/shared/database/prisma');
-const { encrypt } = require('../../../src/shared/utils/crypto');
-
+jest.mock('../../../src/modules/auth/auth.service');
 jest.mock('../../../src/shared/database/prisma', () => ({
     user: {
-        upsert: jest.fn(),
-        count: jest.fn()
+        upsert: jest.fn()
     }
 }));
 
-jest.mock('../../../src/shared/utils/crypto');
+const { upsertGoogleUser } = require('../../../src/modules/users/users.service');
+const { asignarRol } = require('../../../src/modules/auth/auth.service');
+const prisma = require('../../../src/shared/database/prisma');
+
 
 describe('Servicio de Usuarios (upsertGoogleUser)', () => {
     beforeEach(() => {
         jest.clearAllMocks();
     });
 
-    test('Primer usuario debe ser asignado como ADMIN', async () => {
-        prisma.user.count.mockResolvedValue(0); // BD vacía
-        prisma.user.upsert.mockResolvedValue({ id: 1, role: 'ADMIN', email: 'jperez@finnegans.com.ar', googleId: '123', fullName: 'Juan' });
+    test('Sin llave de admin debe asignar rol EMPLOYEE', async () => {
+        asignarRol.mockReturnValue('EMPLOYEE');
+        prisma.user.upsert.mockResolvedValue({ id: 1, role: 'EMPLOYEE', email: 'jperez@finnegans.com.ar', googleId: '123', fullName: 'Juan' });
 
         await upsertGoogleUser({
             email: 'jperez@finnegans.com.ar',
             googleId: '123',
             fullName: 'Juan'
-        });
+        }, undefined);
 
-        expect(prisma.user.upsert).toHaveBeenCalledWith(
-            expect.objectContaining({
-                create: expect.objectContaining({ role: 'ADMIN' })
-            })
-        );
-    });
-
-    test('Usuarios posteriores deben ser asignados como EMPLOYEE', async () => {
-        prisma.user.count.mockResolvedValue(5); // BD con usuarios
-        prisma.user.upsert.mockResolvedValue({ id: 2, role: 'EMPLOYEE', email: 'otro@finnegans.com.ar', googleId: '456', fullName: 'Otro' });
-
-        await upsertGoogleUser({
-            email: 'otro@finnegans.com.ar',
-            googleId: '456',
-            fullName: 'Otro'
-        });
-
+        expect(asignarRol).toHaveBeenCalledWith(undefined);
         expect(prisma.user.upsert).toHaveBeenCalledWith(
             expect.objectContaining({
                 create: expect.objectContaining({ role: 'EMPLOYEE' })
@@ -55,53 +38,47 @@ describe('Servicio de Usuarios (upsertGoogleUser)', () => {
         );
     });
 
-    test('Debe encriptar refreshToken si existe', async () => {
-        prisma.user.count.mockResolvedValue(0);
-        encrypt.mockReturnValue('encrypted_token_abc123');
-        prisma.user.upsert.mockResolvedValue({ id: 1, role: 'ADMIN' });
+    test('Con llave válida debe asignar rol ADMIN', async () => {
+        asignarRol.mockReturnValue('ADMIN');
+        prisma.user.upsert.mockResolvedValue({ id: 1, role: 'ADMIN', email: 'admin@finnegans.com.ar', googleId: '456', fullName: 'Admin' });
 
         await upsertGoogleUser({
-            email: 'test@finnegans.com.ar',
-            googleId: '789',
-            fullName: 'Test',
-            refreshToken: 'raw_refresh_token'
-        });
+            email: 'admin@finnegans.com.ar',
+            googleId: '456',
+            fullName: 'Admin'
+        }, 'admin-secret-key-default');
 
-        expect(encrypt).toHaveBeenCalledWith('raw_refresh_token');
+        expect(asignarRol).toHaveBeenCalledWith('admin-secret-key-default');
         expect(prisma.user.upsert).toHaveBeenCalledWith(
             expect.objectContaining({
-                create: expect.objectContaining({ refreshToken: 'encrypted_token_abc123' })
+                create: expect.objectContaining({ role: 'ADMIN' })
             })
         );
     });
 
-    test('NO debe incluir refreshToken si no existe', async () => {
-        prisma.user.count.mockResolvedValue(1);
-        prisma.user.upsert.mockResolvedValue({ id: 2, role: 'EMPLOYEE' });
+    test('Con llave inválida debe lanzar error', async () => {
+        asignarRol.mockImplementation(() => {
+            throw new Error('Llave de admin inválida');
+        });
 
-        await upsertGoogleUser({
+        await expect(upsertGoogleUser({
             email: 'test@finnegans.com.ar',
             googleId: '789',
             fullName: 'Test'
-        });
+        }, 'llave-incorrecta')).rejects.toThrow('Llave de admin inválida');
 
-        expect(encrypt).not.toHaveBeenCalled();
-        expect(prisma.user.upsert).toHaveBeenCalledWith(
-            expect.objectContaining({
-                create: expect.not.objectContaining({ refreshToken: expect.anything() })
-            })
-        );
+        expect(asignarRol).toHaveBeenCalledWith('llave-incorrecta');
     });
 
     test('Debe normalizar el email a lowercase y trim', async () => {
-        prisma.user.count.mockResolvedValue(0);
+        asignarRol.mockReturnValue('EMPLOYEE');
         prisma.user.upsert.mockResolvedValue({});
 
         await upsertGoogleUser({
             email: '  JPerez@Finnegans.COM.ar  ',
             googleId: '123',
             fullName: 'Juan'
-        });
+        }, undefined);
 
         expect(prisma.user.upsert).toHaveBeenCalledWith(
             expect.objectContaining({
@@ -112,20 +89,20 @@ describe('Servicio de Usuarios (upsertGoogleUser)', () => {
     });
 
     test('Debe lanzar error si email es undefined', async () => {
-        await expect(upsertGoogleUser({ googleId: '123', fullName: 'Juan' }))
+        await expect(upsertGoogleUser({ googleId: '123', fullName: 'Juan' }, undefined))
             .rejects.toThrow('email y googleId son requeridos');
     });
 
     test('Debe lanzar error si googleId es undefined', async () => {
-        await expect(upsertGoogleUser({ email: 'a@a.com', fullName: 'Juan' }))
+        await expect(upsertGoogleUser({ email: 'a@a.com', fullName: 'Juan' }, undefined))
             .rejects.toThrow('email y googleId son requeridos');
     });
 
     test('Debe lanzar error controlado si la BD falla', async () => {
-        prisma.user.count.mockResolvedValue(0);
+        asignarRol.mockReturnValue('EMPLOYEE');
         prisma.user.upsert.mockRejectedValue(new Error('Conexión perdida'));
 
-        await expect(upsertGoogleUser({ email: 'error@test.com', googleId: '000', fullName: 'Error' }))
+        await expect(upsertGoogleUser({ email: 'error@test.com', googleId: '000', fullName: 'Error' }, undefined))
             .rejects.toThrow('No se pudo guardar el usuario en la base de datos');
     });
 });

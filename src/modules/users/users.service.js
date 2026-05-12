@@ -36,6 +36,11 @@ const upsertGoogleUser = async (googleData, adminKey) => {
         });
         return user;
     } catch (error) {
+        // Si es error de validación de llave, lo propaga sin envolver
+        if (error.message === 'Llave de admin inválida') {
+            throw error;
+        }
+        // Si es error de BD, lo envuelve
         logger.error('Error al crear o actualizar usuario', { error });
         throw new Error('No se pudo guardar el usuario en la base de datos', { cause: error });
     }
