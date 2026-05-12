@@ -10,9 +10,9 @@ app.use(cors());
 app.use(express.json());
 app.use(requestLogger);
 
-// 2. Rutas Base (las irán agregando a medida que hagan los módulos)
-// const authRoutes = require('./modules/auth/auth.routes');
-// app.use('/api/auth', authRoutes);
+// 2. Rutas Base
+const authRoutes = require('./modules/auth/auth.routes');
+app.use('/auth', authRoutes);
 
 app.get('/health', (req, res) => {
     res.status(200).json({

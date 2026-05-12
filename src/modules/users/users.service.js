@@ -7,7 +7,7 @@ const logger = require('../../shared/utils/logger');
  * @param {Object} googleData - Objeto devuelto por verifyGoogleToken
  * @returns {Object} - El usuario guardado en PostgreSQL
  */
-const upsertGoogleUser = async (googleData) => {
+const upsertGoogleUser = async (googleData, encryptedRefreshToken = null) => {
     const { email, googleId, fullName } = googleData;
 
     if (!email || !googleId) {
@@ -22,12 +22,14 @@ const upsertGoogleUser = async (googleData) => {
             where: { email: normalizedEmail },
             update: {
                 googleId,
-                fullName
+                fullName,
+                ...(encryptedRefreshToken && { refreshToken: encryptedRefreshToken }),
             },
             create: {
                 email: normalizedEmail,
                 googleId,
-                fullName
+                fullName,
+                refreshToken: encryptedRefreshToken,
                 // TODO: asignar role según dominio de email cuando se defina la regla de negocio
             }
         });
