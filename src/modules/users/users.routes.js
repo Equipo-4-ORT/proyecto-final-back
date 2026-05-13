@@ -1,8 +1,8 @@
-const { router } = require('express');
+const express = require('express');
 const { authMiddleware } = require('../../shared/middleware');
 //faltan los controladores todavia
 
-const router = router();
+const router = express.Router();
 
 router.use(authMiddleware);
 
