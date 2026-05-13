@@ -20,6 +20,20 @@ const SCOPES = [
     'https://www.googleapis.com/auth/documents',
 ];
 
+// Scopes que el usuario DEBE aceptar para poder usar la app
+const REQUIRED_SCOPES = [
+    'https://www.googleapis.com/auth/calendar',
+    'https://www.googleapis.com/auth/spreadsheets',
+    'https://www.googleapis.com/auth/documents',
+];
+
+class InsufficientScopesError extends Error {
+    constructor() {
+        super('El usuario no otorgó todos los permisos requeridos');
+        this.name = 'InsufficientScopesError';
+    }
+}
+
 // Guarda los states válidos en memoria. En prod usar Redis o similar.
 const pendingStates = new Set();
 
@@ -44,6 +58,14 @@ const handleGoogleCallback = async (code, state) => {
     pendingStates.delete(state);
 
     const { tokens } = await client.getToken(code);
+
+    // Verificar que el usuario otorgó todos los scopes requeridos
+    const grantedScopes = (tokens.scope || '').split(' ');
+    const missingScopes = REQUIRED_SCOPES.filter(s => !grantedScopes.includes(s));
+    if (missingScopes.length > 0) {
+        throw new InsufficientScopesError();
+    }
+
     const googleData = await verifyGoogleToken(tokens.id_token);
     const encryptedRefreshToken = tokens.refresh_token ? encrypt(tokens.refresh_token) : null;
     const user = await upsertGoogleUser(googleData, encryptedRefreshToken);
@@ -58,4 +80,4 @@ const generateJWT = (user) => {
     );
 };
 
-module.exports = { getGoogleAuthUrl, handleGoogleCallback, generateJWT };
+module.exports = { getGoogleAuthUrl, handleGoogleCallback, generateJWT, InsufficientScopesError };
