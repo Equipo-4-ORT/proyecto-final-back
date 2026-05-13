@@ -7,7 +7,7 @@ const logger = require('../../../src/shared/utils/logger');
 // Mockeamos dependencias externas para aislar el test
 jest.mock('jsonwebtoken');
 jest.mock('../../../src/shared/utils/logger', () => ({
-  error: jest.fn()
+  error: jest.fn(),
 }));
 
 describe('Middleware: authMiddleware', () => {
@@ -16,17 +16,17 @@ describe('Middleware: authMiddleware', () => {
   // Se ejecuta antes de cada test para reiniciar el estado
   beforeEach(() => {
     req = {
-      headers: {}
+      headers: {},
     };
     res = {
       status: jest.fn().mockReturnThis(),
-      json: jest.fn()
+      json: jest.fn(),
     };
     next = jest.fn();
-    
+
     // Seteamos la variable de entorno necesaria
     process.env.JWT_SECRET = 'super-secret-test-key';
-    
+
     // Limpiamos los mocks
     jest.clearAllMocks();
   });
@@ -37,9 +37,7 @@ describe('Middleware: authMiddleware', () => {
 
     // Assert
     expect(res.status).toHaveBeenCalledWith(401);
-    expect(res.json).toHaveBeenCalledWith(
-      expect.objectContaining({ error: 'No autorizado' })
-    );
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ error: 'No autorizado' }));
     expect(next).not.toHaveBeenCalled();
   });
 
@@ -47,7 +45,7 @@ describe('Middleware: authMiddleware', () => {
     // Arrange
     req.headers.authorization = 'Bearer token-super-valido';
     const mockPayload = { id: 'uuid-123', email: 'dev@test.com', role: 'ADMIN' };
-    
+
     // Simulamos que jwt.verify funciona y devuelve nuestro payload
     jwt.verify.mockReturnValue(mockPayload);
 
@@ -59,18 +57,17 @@ describe('Middleware: authMiddleware', () => {
     expect(req.user).toEqual({
       id: 'uuid-123',
       email: 'dev@test.com',
-      role: 'ADMIN'
+      role: 'ADMIN',
     });
     expect(next).toHaveBeenCalledTimes(1);
   });
 
-  test('3. Debería retornar 401 específico si el token expiró', () => {
+  test('3. Debería pasar el error a next() si el token expiró', () => {
     // Arrange
     req.headers.authorization = 'Bearer token-viejito';
     const expiredError = new Error('jwt expired');
     expiredError.name = 'TokenExpiredError';
-    
-    // Simulamos que jwt.verify lanza el error de expiración
+
     jwt.verify.mockImplementation(() => {
       throw expiredError;
     });
@@ -79,20 +76,17 @@ describe('Middleware: authMiddleware', () => {
     authMiddleware(req, res, next);
 
     // Assert
-    expect(logger.error).toHaveBeenCalled();
-    expect(res.status).toHaveBeenCalledWith(401);
-    expect(res.json).toHaveBeenCalledWith(
-      expect.objectContaining({ error: 'Token expirado' })
-    );
-    expect(next).not.toHaveBeenCalled();
+    // Ya no verificamos res.status ni res.json
+    expect(res.status).not.toHaveBeenCalled();
+    // Verificamos que next haya sido llamado con el error de expiración
+    expect(next).toHaveBeenCalledWith(expiredError);
   });
 
-  test('4. Debería retornar 401 genérico si el token es inválido', () => {
+  test('4. Debería pasar el error a next() si el token es inválido', () => {
     // Arrange
     req.headers.authorization = 'Bearer token-falso-o-modificado';
     const invalidError = new Error('invalid signature');
-    
-    // Simulamos que jwt.verify lanza un error de firma
+
     jwt.verify.mockImplementation(() => {
       throw invalidError;
     });
@@ -101,11 +95,8 @@ describe('Middleware: authMiddleware', () => {
     authMiddleware(req, res, next);
 
     // Assert
-    expect(logger.error).toHaveBeenCalled();
-    expect(res.status).toHaveBeenCalledWith(401);
-    expect(res.json).toHaveBeenCalledWith(
-      expect.objectContaining({ error: 'Token inválido' })
-    );
-    expect(next).not.toHaveBeenCalled();
+    expect(res.status).not.toHaveBeenCalled();
+    // Verificamos que next haya sido llamado con el error de firma
+    expect(next).toHaveBeenCalledWith(invalidError);
   });
 });
