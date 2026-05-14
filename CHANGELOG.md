@@ -5,6 +5,21 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-05-12
+
+### Added
+- Jira integration module (`src/modules/jira/`): OAuth 2.0 (3LO) connect/disconnect flow, connection status endpoint, and a caller-agnostic `syncForUser(userId, dateStart, dateEnd)` that imports the user's Jira activity (comments, transitions, worklogs) into `DailyActivity` with `source='jira'`
+  - Endpoints: `GET /api/jira/auth`, `GET /api/jira/auth/callback`, `GET /api/jira/status`, `DELETE /api/jira/connection`, `POST /api/jira/sync`
+  - `jira.client.js` HTTP adapter over native `fetch` with timeout (`AbortController`), retry/backoff on 429/5xx, and refresh-token rotation
+  - `jira.mapper.js` pure Atlassian → `DailyActivity` transformations with deterministic `externalId` for idempotency
+  - Typed errors (`jira.errors.js`) mapped to HTTP status codes by the global error handler
+- Prisma migration `20260512120000_add_jira_integration`: Jira credential fields + `jiraReconnectRequired`/`jiraLastSyncAt` on `User`, new `JiraOAuthState` table (one-shot CSRF `state` with 10‑min TTL), `external_id` column + `@@unique([userId, source, externalId])` + `@@index([userId, source, startTime])` on `DailyActivity`
+- Environment variables: `JIRA_CLIENT_ID`, `JIRA_CLIENT_SECRET`, `JIRA_REDIRECT_URI`, `JIRA_SCOPES`, `JIRA_REQUEST_TIMEOUT_MS`, `JIRA_SYNC_MAX_WINDOW_HOURS`, `FRONTEND_BASE_URL` (documented in `.env.example`)
+- Jest tests for the Jira service, client, mapper, and controller
+
+### Changed
+- `src/app.js` mounts the Jira routes under `/api/jira`
+
 ## [0.2.0] - 2026-05-02
 
 ### Added

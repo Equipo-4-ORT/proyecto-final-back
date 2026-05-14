@@ -1,6 +1,6 @@
 {
   "name": "proyecto-final-back",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Repositorio dedicado a la entrega del trabajo de proyecto final de la carrera Analista en sistemas de ORT Belgrano.",
   "main": "src/server.js",
   "scripts": {

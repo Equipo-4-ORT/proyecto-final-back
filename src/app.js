@@ -13,6 +13,8 @@ app.use(requestLogger);
 // 2. Rutas Base (las irán agregando a medida que hagan los módulos)
 // const authRoutes = require('./modules/auth/auth.routes');
 // app.use('/api/auth', authRoutes);
+const jiraRoutes = require('./modules/jira/jira.routes');
+app.use('/api/jira', jiraRoutes);
 
 app.get('/health', (req, res) => {
     res.status(200).json({
