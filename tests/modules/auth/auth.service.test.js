@@ -49,6 +49,14 @@ const FULL_SCOPES = [
 ].join(' ');
 
 describe('Auth Service', () => {
+    beforeAll(() => {
+        jest.useFakeTimers();
+    });
+
+    afterAll(() => {
+        jest.useRealTimers();
+    });
+
     beforeEach(() => {
         jest.clearAllMocks();
     });
