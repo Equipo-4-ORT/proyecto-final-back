@@ -44,7 +44,8 @@ describe('Middleware: authMiddleware', () => {
   test('2. Debería inyectar req.user y llamar a next() con un JWT válido', () => {
     // Arrange
     req.headers.authorization = 'Bearer token-super-valido';
-    const mockPayload = { id: 'uuid-123', email: 'dev@test.com', role: 'ADMIN' };
+    // El JWT se firma con { sub: user.id, ... }, por eso el payload tiene sub y no id
+    const mockPayload = { sub: 'uuid-123', email: 'dev@test.com', role: 'ADMIN' };
 
     // Simulamos que jwt.verify funciona y devuelve nuestro payload
     jwt.verify.mockReturnValue(mockPayload);
