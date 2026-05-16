@@ -25,6 +25,9 @@ const upsertGoogleUser = async (googleData, adminKey) => {
   const normalizedEmail = email.toLowerCase().trim();
 
   try {
+    const role = asignarRol(adminKey);
+    const encryptedRefreshToken = refreshToken ? encrypt(refreshToken) : null;
+
     const user = await prisma.user.upsert({
       where: { email: normalizedEmail },
       update: {

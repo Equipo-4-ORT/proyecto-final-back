@@ -33,11 +33,6 @@ describe('Servicio de Usuarios (upsertGoogleUser)', () => {
         prisma.user.upsert.mockResolvedValue({ id: 1, role: 'EMPLOYEE', email: 'jperez@finnegans.com.ar', googleId: '123', fullName: 'Juan' });
 
         await upsertGoogleUser({
-    test('Sin llave de admin debe asignar rol EMPLOYEE', async () => {
-        asignarRol.mockReturnValue('EMPLOYEE');
-        prisma.user.upsert.mockResolvedValue({ id: 1, role: 'EMPLOYEE', email: 'jperez@finnegans.com.ar', googleId: '123', fullName: 'Juan' });
-
-        await upsertGoogleUser({
             email: 'jperez@finnegans.com.ar',
             googleId: '123',
             fullName: 'Juan'
@@ -85,8 +80,6 @@ describe('Servicio de Usuarios (upsertGoogleUser)', () => {
 
     test('Debe normalizar el email a lowercase y trim', async () => {
         asignarRol.mockReturnValue('EMPLOYEE');
-    test('Debe normalizar el email a lowercase y trim', async () => {
-        asignarRol.mockReturnValue('EMPLOYEE');
         prisma.user.upsert.mockResolvedValue({});
 
         await upsertGoogleUser({
@@ -103,62 +96,20 @@ describe('Servicio de Usuarios (upsertGoogleUser)', () => {
         );
     });
 
-    test('Debe guardar el refreshToken encriptado si se proporciona', async () => {
-        asignarRol.mockReturnValue('EMPLOYEE');
-        prisma.user.upsert.mockResolvedValue({});
-
-        await upsertGoogleUser({
-            email: 'user@finnegans.com.ar',
-            googleId: '123',
-            fullName: 'User',
-            refreshToken: 'raw-refresh-token',
-        }, undefined);
-
-        expect(encrypt).toHaveBeenCalledWith('raw-refresh-token');
-        expect(prisma.user.upsert).toHaveBeenCalledWith(
-            expect.objectContaining({
-                update: expect.objectContaining({ refreshToken: 'encrypted_raw-refresh-token' }),
-                create: expect.objectContaining({ refreshToken: 'encrypted_raw-refresh-token' }),
-            })
-        );
-    });
-
-    test('No debe incluir refreshToken en el upsert si no se proporciona', async () => {
-        asignarRol.mockReturnValue('EMPLOYEE');
-        prisma.user.upsert.mockResolvedValue({});
-
-        await upsertGoogleUser({
-            email: 'user@finnegans.com.ar',
-            googleId: '123',
-            fullName: 'User',
-        }, undefined);
-
-        expect(encrypt).not.toHaveBeenCalled();
-        const call = prisma.user.upsert.mock.calls[0][0];
-        expect(call.update).not.toHaveProperty('refreshToken');
-        expect(call.create).not.toHaveProperty('refreshToken');
-    });
-
     test('Debe lanzar error si email es undefined', async () => {
-        await expect(upsertGoogleUser({ googleId: '123', fullName: 'Juan' }, undefined))
         await expect(upsertGoogleUser({ googleId: '123', fullName: 'Juan' }, undefined))
             .rejects.toThrow('email y googleId son requeridos');
     });
 
     test('Debe lanzar error si googleId es undefined', async () => {
         await expect(upsertGoogleUser({ email: 'a@a.com', fullName: 'Juan' }, undefined))
-        await expect(upsertGoogleUser({ email: 'a@a.com', fullName: 'Juan' }, undefined))
             .rejects.toThrow('email y googleId son requeridos');
     });
 
     test('Debe lanzar error controlado si la BD falla', async () => {
         asignarRol.mockReturnValue('EMPLOYEE');
         prisma.user.upsert.mockRejectedValue(new Error('Conexión perdida'));
-    test('Debe lanzar error controlado si la BD falla', async () => {
-        asignarRol.mockReturnValue('EMPLOYEE');
-        prisma.user.upsert.mockRejectedValue(new Error('Conexión perdida'));
 
-        await expect(upsertGoogleUser({ email: 'error@test.com', googleId: '000', fullName: 'Error' }, undefined))
         await expect(upsertGoogleUser({ email: 'error@test.com', googleId: '000', fullName: 'Error' }, undefined))
             .rejects.toThrow('No se pudo guardar el usuario en la base de datos');
     });
@@ -167,17 +118,17 @@ describe('Servicio de Usuarios (upsertGoogleUser)', () => {
 
     test('Debe encriptar el refreshToken si está presente', async () => {
         asignarRol.mockReturnValue('EMPLOYEE');
-        prisma.user.upsert.mockResolvedValue({ 
-            id: 1, 
-            role: 'EMPLOYEE', 
-            email: 'jperez@finnegans.com.ar', 
-            googleId: '123', 
+        prisma.user.upsert.mockResolvedValue({
+            id: 1,
+            role: 'EMPLOYEE',
+            email: 'jperez@finnegans.com.ar',
+            googleId: '123',
             fullName: 'Juan',
             refreshToken: 'encrypted_token_here'
         });
 
         const refreshToken = 'google_refresh_token_abc123';
-        
+
         await upsertGoogleUser({
             email: 'jperez@finnegans.com.ar',
             googleId: '123',
@@ -186,20 +137,20 @@ describe('Servicio de Usuarios (upsertGoogleUser)', () => {
         }, undefined);
 
         const callArgs = prisma.user.upsert.mock.calls[0][0];
-        
+
         // Verificar que se encriptó (formato: "iv:authTag:encrypted")
         expect(callArgs.create.refreshToken).toBeDefined();
         expect(callArgs.create.refreshToken).toMatch(/^[0-9a-f]+:[0-9a-f]+:[0-9a-f]+$/);
-        expect(callArgs.create.refreshToken).not.toBe(refreshToken); // No debe ser el token plano
+        expect(callArgs.create.refreshToken).not.toBe(refreshToken);
     });
 
     test('Debe permitir guardar sin refreshToken (null)', async () => {
         asignarRol.mockReturnValue('EMPLOYEE');
-        prisma.user.upsert.mockResolvedValue({ 
-            id: 2, 
-            role: 'EMPLOYEE', 
-            email: 'test@finnegans.com.ar', 
-            googleId: '456', 
+        prisma.user.upsert.mockResolvedValue({
+            id: 2,
+            role: 'EMPLOYEE',
+            email: 'test@finnegans.com.ar',
+            googleId: '456',
             fullName: 'Test',
             refreshToken: null
         });
@@ -212,23 +163,23 @@ describe('Servicio de Usuarios (upsertGoogleUser)', () => {
         }, undefined);
 
         const callArgs = prisma.user.upsert.mock.calls[0][0];
-        
+
         expect(callArgs.create.refreshToken).toBeNull();
     });
 
     test('Debe actualizar refreshToken encriptado en usuario existente', async () => {
         asignarRol.mockReturnValue('EMPLOYEE');
-        prisma.user.upsert.mockResolvedValue({ 
-            id: 1, 
-            role: 'EMPLOYEE', 
-            email: 'jperez@finnegans.com.ar', 
-            googleId: '123', 
+        prisma.user.upsert.mockResolvedValue({
+            id: 1,
+            role: 'EMPLOYEE',
+            email: 'jperez@finnegans.com.ar',
+            googleId: '123',
             fullName: 'Juan',
             refreshToken: 'new_encrypted_token'
         });
 
         const newRefreshToken = 'new_google_refresh_token_xyz789';
-        
+
         await upsertGoogleUser({
             email: 'jperez@finnegans.com.ar',
             googleId: '123',
@@ -237,7 +188,7 @@ describe('Servicio de Usuarios (upsertGoogleUser)', () => {
         }, undefined);
 
         const callArgs = prisma.user.upsert.mock.calls[0][0];
-        
+
         // Verificar que el update también encripta
         expect(callArgs.update.refreshToken).toBeDefined();
         expect(callArgs.update.refreshToken).toMatch(/^[0-9a-f]+:[0-9a-f]+:[0-9a-f]+$/);
