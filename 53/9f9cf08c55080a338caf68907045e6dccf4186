@@ -1,0 +1,27 @@
+tests/modules/users/users.service.test.js
+  s_6818b5394caa3c::t_5e8545afe5c03a 3,6-19,22-23,27-28,44,50,62,68,75,81,94,100,105-140,158
+src/modules/auth/auth.service.js
+  s_6818b5394caa3c::t_5a8194f568be41 3-6,8,10-15,19-20,24-25,28-30,34-36
+tests/shared/middleware/requireRole.test.js
+  s_6818b5394caa3c::t_445a0303966df1 57-75
+src/modules/users/users.service.js
+  s_6818b5394caa3c::t_214184247fd44a 8
+src/shared/middleware/requireRole.js
+  s_6818b5394caa3c::t_e435a591fe7c11 3-5
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "539f9cf08c55080a338caf68907045e6dccf4186",
+  "prompts": {},
+  "sessions": {
+    "s_6818b5394caa3c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "16f0dbf3-7aea-44d1-b845-743dd5fb3cbb",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "LicFuraca <martinexequield@gmail.com>"
+    }
+  }
+}
