@@ -13,8 +13,8 @@ jest.mock('../../../src/modules/auth/auth.service', () => {
 
 jest.mock('../../../src/shared/database/prisma', () => ({
     user: {
-        upsert: jest.fn()
-    }
+        upsert: jest.fn(),
+    },
 }));
 
 // ← DESPUÉS de los mocks, hacer los imports
@@ -28,6 +28,11 @@ describe('Servicio de Usuarios (upsertGoogleUser)', () => {
         jest.clearAllMocks();
     });
 
+    test('Sin llave de admin debe asignar rol EMPLOYEE', async () => {
+        asignarRol.mockReturnValue('EMPLOYEE');
+        prisma.user.upsert.mockResolvedValue({ id: 1, role: 'EMPLOYEE', email: 'jperez@finnegans.com.ar', googleId: '123', fullName: 'Juan' });
+
+        await upsertGoogleUser({
     test('Sin llave de admin debe asignar rol EMPLOYEE', async () => {
         asignarRol.mockReturnValue('EMPLOYEE');
         prisma.user.upsert.mockResolvedValue({ id: 1, role: 'EMPLOYEE', email: 'jperez@finnegans.com.ar', googleId: '123', fullName: 'Juan' });
@@ -80,6 +85,8 @@ describe('Servicio de Usuarios (upsertGoogleUser)', () => {
 
     test('Debe normalizar el email a lowercase y trim', async () => {
         asignarRol.mockReturnValue('EMPLOYEE');
+    test('Debe normalizar el email a lowercase y trim', async () => {
+        asignarRol.mockReturnValue('EMPLOYEE');
         prisma.user.upsert.mockResolvedValue({});
 
         await upsertGoogleUser({
@@ -91,17 +98,55 @@ describe('Servicio de Usuarios (upsertGoogleUser)', () => {
         expect(prisma.user.upsert).toHaveBeenCalledWith(
             expect.objectContaining({
                 where: { email: 'jperez@finnegans.com.ar' },
-                create: expect.objectContaining({ email: 'jperez@finnegans.com.ar' })
+                create: expect.objectContaining({ email: 'jperez@finnegans.com.ar' }),
             })
         );
     });
 
+    test('Debe guardar el refreshToken encriptado si se proporciona', async () => {
+        asignarRol.mockReturnValue('EMPLOYEE');
+        prisma.user.upsert.mockResolvedValue({});
+
+        await upsertGoogleUser({
+            email: 'user@finnegans.com.ar',
+            googleId: '123',
+            fullName: 'User',
+            refreshToken: 'raw-refresh-token',
+        }, undefined);
+
+        expect(encrypt).toHaveBeenCalledWith('raw-refresh-token');
+        expect(prisma.user.upsert).toHaveBeenCalledWith(
+            expect.objectContaining({
+                update: expect.objectContaining({ refreshToken: 'encrypted_raw-refresh-token' }),
+                create: expect.objectContaining({ refreshToken: 'encrypted_raw-refresh-token' }),
+            })
+        );
+    });
+
+    test('No debe incluir refreshToken en el upsert si no se proporciona', async () => {
+        asignarRol.mockReturnValue('EMPLOYEE');
+        prisma.user.upsert.mockResolvedValue({});
+
+        await upsertGoogleUser({
+            email: 'user@finnegans.com.ar',
+            googleId: '123',
+            fullName: 'User',
+        }, undefined);
+
+        expect(encrypt).not.toHaveBeenCalled();
+        const call = prisma.user.upsert.mock.calls[0][0];
+        expect(call.update).not.toHaveProperty('refreshToken');
+        expect(call.create).not.toHaveProperty('refreshToken');
+    });
+
     test('Debe lanzar error si email es undefined', async () => {
+        await expect(upsertGoogleUser({ googleId: '123', fullName: 'Juan' }, undefined))
         await expect(upsertGoogleUser({ googleId: '123', fullName: 'Juan' }, undefined))
             .rejects.toThrow('email y googleId son requeridos');
     });
 
     test('Debe lanzar error si googleId es undefined', async () => {
+        await expect(upsertGoogleUser({ email: 'a@a.com', fullName: 'Juan' }, undefined))
         await expect(upsertGoogleUser({ email: 'a@a.com', fullName: 'Juan' }, undefined))
             .rejects.toThrow('email y googleId son requeridos');
     });
@@ -109,7 +154,11 @@ describe('Servicio de Usuarios (upsertGoogleUser)', () => {
     test('Debe lanzar error controlado si la BD falla', async () => {
         asignarRol.mockReturnValue('EMPLOYEE');
         prisma.user.upsert.mockRejectedValue(new Error('Conexión perdida'));
+    test('Debe lanzar error controlado si la BD falla', async () => {
+        asignarRol.mockReturnValue('EMPLOYEE');
+        prisma.user.upsert.mockRejectedValue(new Error('Conexión perdida'));
 
+        await expect(upsertGoogleUser({ email: 'error@test.com', googleId: '000', fullName: 'Error' }, undefined))
         await expect(upsertGoogleUser({ email: 'error@test.com', googleId: '000', fullName: 'Error' }, undefined))
             .rejects.toThrow('No se pudo guardar el usuario en la base de datos');
     });
