@@ -4,9 +4,12 @@ const nodeCrypto = require('crypto');
 process.env.ENCRYPTION_KEY = nodeCrypto.randomBytes(32).toString('hex');
 
 // ← IMPORTANTE: Mock ANTES de los requires
-jest.mock('../../../src/modules/auth/auth.service', () => ({
-    asignarRol: jest.fn()
-}));
+jest.mock('../../../src/modules/auth/auth.service', () => {
+    class InvalidAdminKeyError extends Error {
+        constructor(msg) { super(msg); this.name = 'InvalidAdminKeyError'; }
+    }
+    return { asignarRol: jest.fn(), InvalidAdminKeyError };
+});
 
 jest.mock('../../../src/shared/database/prisma', () => ({
     user: {
@@ -16,7 +19,7 @@ jest.mock('../../../src/shared/database/prisma', () => ({
 
 // ← DESPUÉS de los mocks, hacer los imports
 const { upsertGoogleUser } = require('../../../src/modules/users/users.service');
-const { asignarRol } = require('../../../src/modules/auth/auth.service');
+const { asignarRol, InvalidAdminKeyError } = require('../../../src/modules/auth/auth.service');
 const prisma = require('../../../src/shared/database/prisma');
 
 
@@ -63,7 +66,7 @@ describe('Servicio de Usuarios (upsertGoogleUser)', () => {
 
     test('Con llave inválida debe lanzar error', async () => {
         asignarRol.mockImplementation(() => {
-            throw new Error('Llave de admin inválida');
+            throw new InvalidAdminKeyError('Llave de admin inválida');
         });
 
         await expect(upsertGoogleUser({

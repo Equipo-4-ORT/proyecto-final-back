@@ -1,6 +1,6 @@
 const prisma = require('../../shared/database/prisma');
 const logger = require('../../shared/utils/logger');
-const { asignarRol } = require('../auth/auth.service');
+const { asignarRol, InvalidAdminKeyError } = require('../auth/auth.service');
 const { encrypt } = require('../../shared/utils/crypto');
 
 /**
@@ -47,8 +47,7 @@ const upsertGoogleUser = async (googleData, adminKey) => {
         });
         return user;
     } catch (error) {
-        // Si es error de validación de llave, lo propaga sin envolver
-        if (error.message === 'Llave de admin inválida') {
+        if (error instanceof InvalidAdminKeyError) {
             throw error;
         }
         // Si es error de BD, lo envuelve
