@@ -1,0 +1,26 @@
+tests/modules/users/users.service.test.js
+  s_6818b5394caa3c::t_475a3ee476a5fa 121-125,131,140,144,149-153,166,172-176,182,191
+src/modules/users/users.service.js
+  s_6818b5394caa3c::t_bf6d8eb02ab1f8 28-30
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "cb303578177b8924aee3bdfd8e92f1ab4eddaeeb",
+  "prompts": {},
+  "humans": {
+    "h_8af40fd7a5881e": {
+      "author": "LicFuraca <martinexequield@gmail.com>"
+    }
+  },
+  "sessions": {
+    "s_6818b5394caa3c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "16f0dbf3-7aea-44d1-b845-743dd5fb3cbb",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "LicFuraca <martinexequield@gmail.com>"
+    }
+  }
+}
