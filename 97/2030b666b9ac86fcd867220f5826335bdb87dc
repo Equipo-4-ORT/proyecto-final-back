@@ -1,0 +1,14 @@
+src/app.js
+  h_8af40fd7a5881e 3-4,14-19,33
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "972030b666b9ac86fcd867220f5826335bdb87dc",
+  "prompts": {},
+  "humans": {
+    "h_8af40fd7a5881e": {
+      "author": "LicFuraca <martinexequield@gmail.com>"
+    }
+  }
+}
