@@ -1,0 +1,26 @@
+src/modules/users/users.service.js
+  s_6818b5394caa3c::t_21e09c1e676447 61
+  s_6818b5394caa3c::t_6a622199d0cf78 3
+  s_6818b5394caa3c::t_5d1eecdc536c8e 50
+tests/modules/users/users.service.test.js
+  s_6818b5394caa3c::t_e93217f22ea778 22
+  s_6818b5394caa3c::t_39bcdf6f9c442e 7-12
+  s_6818b5394caa3c::t_a2b7fd32b94da3 69
+  s_6818b5394caa3c::t_21e09c1e676447 197
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "9e83d959468ebd17ee3f6e99a9bc99d5b764e3b9",
+  "prompts": {},
+  "sessions": {
+    "s_6818b5394caa3c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "16f0dbf3-7aea-44d1-b845-743dd5fb3cbb",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "LicFuraca <martinexequield@gmail.com>"
+    }
+  }
+}
