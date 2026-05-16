@@ -1,9 +1,13 @@
 const requestLogger = require('./requestLogger');
 const errorHandler = require('./errorHandler');
-const requireRole = require('./requireRole')
+const requireRole = require('./requireRole');
+const authMiddleware = require('./authMiddleware');
+const authErrorHandler = require('./authErrorHandler');
 
 module.exports = {
   requestLogger,
   errorHandler,
-  requireRole
+  requireRole,
+  authMiddleware,
+  authErrorHandler,
 };
