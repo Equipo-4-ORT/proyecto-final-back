@@ -54,6 +54,25 @@ describe('Middleware requireRole', () => {
         expect(next).toHaveBeenCalled();
     });
 
+    test('Debería retornar 401 si req.user no está definido', () => {
+        const middleware = requireRole('ADMIN');
+
+        const req = {};
+        const res = {
+            status: jest.fn().mockReturnThis(),
+            json: jest.fn()
+        };
+        const next = jest.fn();
+
+        middleware(req, res, next);
+
+        expect(res.status).toHaveBeenCalledWith(401);
+        expect(res.json).toHaveBeenCalledWith(
+            expect.objectContaining({ error: 'Unauthorized' })
+        );
+        expect(next).not.toHaveBeenCalled();
+    });
+
     test('Debería retornar 403 con mensaje de roles permitidos', () => {
         const middleware = requireRole('ADMIN', 'MANAGER');
         

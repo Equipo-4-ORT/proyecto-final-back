@@ -1,17 +1,31 @@
 const nodeCrypto = require('crypto');
 
-// La key DEBE setearse ANTES del require de users.service
+// Las keys DEBEN setearse ANTES de cualquier require
 process.env.ENCRYPTION_KEY = nodeCrypto.randomBytes(32).toString('hex');
 
-jest.mock('../../../src/modules/auth/auth.service');
+jest.mock('../../../src/shared/utils/crypto', () => ({
+    encrypt: jest.fn((text) => `encrypted_${text}`),
+}));
+
+jest.mock('../../../src/modules/auth/auth.service', () => {
+    class InvalidAdminKeyError extends Error {
+        constructor(msg) { super(msg); this.name = 'InvalidAdminKeyError'; }
+    }
+    return {
+        asignarRol: jest.fn(),
+        InvalidAdminKeyError,
+    };
+});
+
 jest.mock('../../../src/shared/database/prisma', () => ({
     user: {
-        upsert: jest.fn()
-    }
+        upsert: jest.fn(),
+    },
 }));
 
 const { upsertGoogleUser } = require('../../../src/modules/users/users.service');
-const { asignarRol } = require('../../../src/modules/auth/auth.service');
+const { asignarRol, InvalidAdminKeyError } = require('../../../src/modules/auth/auth.service');
+const { encrypt } = require('../../../src/shared/utils/crypto');
 const prisma = require('../../../src/shared/database/prisma');
 
 
@@ -27,13 +41,13 @@ describe('Servicio de Usuarios (upsertGoogleUser)', () => {
         await upsertGoogleUser({
             email: 'jperez@finnegans.com.ar',
             googleId: '123',
-            fullName: 'Juan'
+            fullName: 'Juan',
         }, undefined);
 
         expect(asignarRol).toHaveBeenCalledWith(undefined);
         expect(prisma.user.upsert).toHaveBeenCalledWith(
             expect.objectContaining({
-                create: expect.objectContaining({ role: 'EMPLOYEE' })
+                create: expect.objectContaining({ role: 'EMPLOYEE' }),
             })
         );
     });
@@ -45,26 +59,26 @@ describe('Servicio de Usuarios (upsertGoogleUser)', () => {
         await upsertGoogleUser({
             email: 'admin@finnegans.com.ar',
             googleId: '456',
-            fullName: 'Admin'
+            fullName: 'Admin',
         }, 'admin-secret-key-default');
 
         expect(asignarRol).toHaveBeenCalledWith('admin-secret-key-default');
         expect(prisma.user.upsert).toHaveBeenCalledWith(
             expect.objectContaining({
-                create: expect.objectContaining({ role: 'ADMIN' })
+                create: expect.objectContaining({ role: 'ADMIN' }),
             })
         );
     });
 
     test('Con llave inválida debe lanzar error', async () => {
         asignarRol.mockImplementation(() => {
-            throw new Error('Llave de admin inválida');
+            throw new InvalidAdminKeyError('Llave de admin inválida');
         });
 
         await expect(upsertGoogleUser({
             email: 'test@finnegans.com.ar',
             googleId: '789',
-            fullName: 'Test'
+            fullName: 'Test',
         }, 'llave-incorrecta')).rejects.toThrow('Llave de admin inválida');
 
         expect(asignarRol).toHaveBeenCalledWith('llave-incorrecta');
@@ -77,15 +91,51 @@ describe('Servicio de Usuarios (upsertGoogleUser)', () => {
         await upsertGoogleUser({
             email: '  JPerez@Finnegans.COM.ar  ',
             googleId: '123',
-            fullName: 'Juan'
+            fullName: 'Juan',
         }, undefined);
 
         expect(prisma.user.upsert).toHaveBeenCalledWith(
             expect.objectContaining({
                 where: { email: 'jperez@finnegans.com.ar' },
-                create: expect.objectContaining({ email: 'jperez@finnegans.com.ar' })
+                create: expect.objectContaining({ email: 'jperez@finnegans.com.ar' }),
             })
         );
+    });
+
+    test('Debe guardar el refreshToken encriptado si se proporciona', async () => {
+        asignarRol.mockReturnValue('EMPLOYEE');
+        prisma.user.upsert.mockResolvedValue({});
+
+        await upsertGoogleUser({
+            email: 'user@finnegans.com.ar',
+            googleId: '123',
+            fullName: 'User',
+            refreshToken: 'raw-refresh-token',
+        }, undefined);
+
+        expect(encrypt).toHaveBeenCalledWith('raw-refresh-token');
+        expect(prisma.user.upsert).toHaveBeenCalledWith(
+            expect.objectContaining({
+                update: expect.objectContaining({ refreshToken: 'encrypted_raw-refresh-token' }),
+                create: expect.objectContaining({ refreshToken: 'encrypted_raw-refresh-token' }),
+            })
+        );
+    });
+
+    test('No debe incluir refreshToken en el upsert si no se proporciona', async () => {
+        asignarRol.mockReturnValue('EMPLOYEE');
+        prisma.user.upsert.mockResolvedValue({});
+
+        await upsertGoogleUser({
+            email: 'user@finnegans.com.ar',
+            googleId: '123',
+            fullName: 'User',
+        }, undefined);
+
+        expect(encrypt).not.toHaveBeenCalled();
+        const call = prisma.user.upsert.mock.calls[0][0];
+        expect(call.update).not.toHaveProperty('refreshToken');
+        expect(call.create).not.toHaveProperty('refreshToken');
     });
 
     test('Debe lanzar error si email es undefined', async () => {
