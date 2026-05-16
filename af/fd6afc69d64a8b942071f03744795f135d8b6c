@@ -1,0 +1,23 @@
+tests/modules/auth/auth.controller.test.js
+  s_f88d2388c9b553::t_075d219f64fde2 1-103
+tests/shared/middleware/authErrorHandler.test.js
+  s_f88d2388c9b553::t_cb3505fced7dcf 1-84
+tests/modules/auth/auth.service.test.js
+  s_f88d2388c9b553::t_6961d35acb3b00 1-203
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "affd6afc69d64a8b942071f03744795f135d8b6c",
+  "prompts": {},
+  "sessions": {
+    "s_f88d2388c9b553": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "49a01b56-e6ba-419e-b84a-9737ae8f8e02",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "LicFuraca <martinexequield@gmail.com>"
+    }
+  }
+}
