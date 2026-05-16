@@ -1,0 +1,24 @@
+src/modules/users/users.routes.js
+  s_f88d2388c9b553::t_9e6ac299f56a2c 3,7
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "484a1ee30d7b878c2d28a41859f795a70534547d",
+  "prompts": {},
+  "humans": {
+    "h_8af40fd7a5881e": {
+      "author": "LicFuraca <martinexequield@gmail.com>"
+    }
+  },
+  "sessions": {
+    "s_f88d2388c9b553": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "49a01b56-e6ba-419e-b84a-9737ae8f8e02",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "LicFuraca <martinexequield@gmail.com>"
+    }
+  }
+}
