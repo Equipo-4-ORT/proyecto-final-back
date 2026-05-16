@@ -31,7 +31,9 @@
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
+    "express-rate-limit": "^7.0.0",
     "google-auth-library": "^10.6.2",
+    "jsonwebtoken": "^9.0.3",
     "winston": "^3.19.0"
   },
   "devDependencies": {
@@ -39,6 +41,7 @@
     "eslint": "^10.2.0",
     "globals": "^17.5.0",
     "jest": "^30.3.0",
+    "supertest": "^7.0.0",
     "nodemon": "^3.1.14",
     "prettier": "^3.8.3",
     "prisma": "^6.19.3"
