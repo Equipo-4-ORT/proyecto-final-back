@@ -1,0 +1,19 @@
+package.json
+  s_f88d2388c9b553::t_b1da81f817c50d 35
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "0491b16b4a426b29024226522dbffc4da0951d75",
+  "prompts": {},
+  "sessions": {
+    "s_f88d2388c9b553": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "49a01b56-e6ba-419e-b84a-9737ae8f8e02",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "LicFuraca <martinexequield@gmail.com>"
+    }
+  }
+}
