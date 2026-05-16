@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const { requestLogger, errorHandler, authErrorHandler } = require('./shared/middleware');
+const { authLimiter, apiLimiter } = require('./shared/middleware/rateLimiter');
 
 const app = express();
 
@@ -9,6 +10,10 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 app.use(requestLogger);
+
+// 2. Rate limiting
+app.use('/auth', authLimiter);
+app.use('/api', apiLimiter);
 
 const authRoutes = require('./modules/auth/auth.routes');
 app.use('/auth', authRoutes);
