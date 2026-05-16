@@ -7,7 +7,10 @@ process.env.JWT_SECRET = 'test-jwt-secret';
 jest.mock('jsonwebtoken');
 jest.mock('../../../src/modules/google/google.service');
 jest.mock('../../../src/modules/users/users.service');
-jest.mock('../../../src/shared/utils/crypto');
+jest.mock('../../../src/shared/utils/crypto', () => ({
+    encrypt: jest.fn(),
+    decrypt: jest.fn(),
+}));
 
 jest.mock('google-auth-library', () => {
     const mockInstance = {
