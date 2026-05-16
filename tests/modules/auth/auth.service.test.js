@@ -5,8 +5,12 @@ process.env.GOOGLE_REDIRECT_URI = 'http://localhost/callback';
 process.env.JWT_SECRET = 'test-jwt-secret';
 
 jest.mock('jsonwebtoken');
-jest.mock('../../../src/modules/google/google.service');
-jest.mock('../../../src/modules/users/users.service');
+jest.mock('../../../src/modules/google/google.service', () => ({
+    verifyGoogleToken: jest.fn(),
+}));
+jest.mock('../../../src/modules/users/users.service', () => ({
+    upsertGoogleUser: jest.fn(),
+}));
 jest.mock('../../../src/shared/utils/crypto', () => ({
     encrypt: jest.fn(),
     decrypt: jest.fn(),
