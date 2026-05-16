@@ -1,0 +1,26 @@
+package.json
+  s_f88d2388c9b553::t_0ba09948815032 34
+  s_f88d2388c9b553::t_61ff17bd2ee883 44
+tests/shared/middleware/rateLimiter.test.js
+  s_f88d2388c9b553::t_cb9ddd9cfcb327 1-71
+src/shared/middleware/rateLimiter.js
+  s_f88d2388c9b553::t_46103fab7f5d5d 1-26
+src/app.js
+  s_f88d2388c9b553::t_7dab54bfb25816 4,14-16
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "4b10104ef1938c7a315ed4728a1c6c55d670848f",
+  "prompts": {},
+  "sessions": {
+    "s_f88d2388c9b553": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "49a01b56-e6ba-419e-b84a-9737ae8f8e02",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "LicFuraca <martinexequield@gmail.com>"
+    }
+  }
+}
