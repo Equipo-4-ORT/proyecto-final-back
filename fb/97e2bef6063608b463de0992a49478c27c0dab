@@ -1,0 +1,19 @@
+tests/modules/auth/auth.service.test.js
+  s_f88d2388c9b553::t_eb612680778699 52-59
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "fb97e2bef6063608b463de0992a49478c27c0dab",
+  "prompts": {},
+  "sessions": {
+    "s_f88d2388c9b553": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "49a01b56-e6ba-419e-b84a-9737ae8f8e02",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "LicFuraca <martinexequield@gmail.com>"
+    }
+  }
+}
