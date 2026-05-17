@@ -1,0 +1,21 @@
+.gitignore
+  s_2e5d382b493240::t_ca554394cc3f71 144-146
+CHANGELOG.md
+  s_2e5d382b493240::t_a3bc751269c6c1 8-30
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "92f9fe0e158ec060c88b9355dc7d77f1e6e40572",
+  "prompts": {},
+  "sessions": {
+    "s_2e5d382b493240": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8c64af90-186f-4559-98d3-589a66719c49",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "LicFuraca <martinexequield@gmail.com>"
+    }
+  }
+}
