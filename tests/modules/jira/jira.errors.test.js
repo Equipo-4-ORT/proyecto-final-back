@@ -3,12 +3,10 @@ const errors = require('../../../src/modules/jira/jira.errors');
 const {
     JiraError,
     JiraUserNotFoundError,
-    JiraInvalidStateError,
     JiraNotConnectedError,
     JiraReconnectRequiredError,
     JiraInvalidWindowError,
     JiraTokenExchangeError,
-    JiraNoSiteError,
     JiraTimeoutError,
     JiraUpstreamError,
 } = errors;
@@ -17,12 +15,10 @@ describe('jira.errors', () => {
     const cases = [
         [JiraError, 500, 'jira_error'],
         [JiraUserNotFoundError, 404, 'user_not_found'],
-        [JiraInvalidStateError, 400, 'invalid_state'],
         [JiraNotConnectedError, 409, 'not_connected'],
         [JiraReconnectRequiredError, 409, 'reconnect_required'],
         [JiraInvalidWindowError, 400, 'invalid_window'],
         [JiraTokenExchangeError, 502, 'token_exchange_failed'],
-        [JiraNoSiteError, 502, 'no_jira_site'],
         [JiraTimeoutError, 504, 'upstream_timeout'],
         [JiraUpstreamError, 502, 'upstream_error'],
     ];
