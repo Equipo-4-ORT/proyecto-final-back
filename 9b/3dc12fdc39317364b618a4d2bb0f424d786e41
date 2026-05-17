@@ -1,0 +1,38 @@
+tests/modules/jira/jira.service.test.js
+  s_acd755be46f19c::t_225158eab20c23 162-183
+src/modules/auth/auth.controller.js
+  s_acd755be46f19c::t_e3bc5dabc14172 18,21,25,30,33
+src/modules/jira/jira.routes.js
+  s_acd755be46f19c::t_5ffd1e9681e396 4-5,9,14-18
+src/shared/config/index.js
+  s_acd755be46f19c::t_c676d6dd0adc6c 1-11
+tests/modules/jira/jira.controller.test.js
+  s_acd755be46f19c::t_5e13ac7ae8e4c7 118-126,148-156,170-176
+.gitignore
+  s_acd755be46f19c::t_06d843e2fa6e53 144-147
+tests/modules/auth/auth.controller.test.js
+  s_acd755be46f19c::t_59dbdc4bd7a8d1 29
+src/shared/utils/logger.js
+  s_acd755be46f19c::t_87b784e0fac878 1,8
+src/modules/jira/jira.client.js
+  s_acd755be46f19c::t_121b6d1fed6475 351-353,355-357,359-361
+  s_acd755be46f19c::t_99fec5d8980244 261-288
+tests/shared/middleware/authMiddleware.test.js
+  s_acd755be46f19c::t_53b668f3d58fa2 44-53
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "9b3dc12fdc39317364b618a4d2bb0f424d786e41",
+  "prompts": {},
+  "sessions": {
+    "s_acd755be46f19c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "66de936e-9d16-4e24-bc2d-8113538a9ea5",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "LicFuraca <martinexequield@gmail.com>"
+    }
+  }
+}
