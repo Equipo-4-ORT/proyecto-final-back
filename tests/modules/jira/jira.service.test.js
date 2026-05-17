@@ -159,6 +159,28 @@ describe('jira.service — handleCallback', () => {
         const result = await service.handleCallback({ code: 'C', state: 'S' });
         expect(result).toEqual({ outcome: 'error', reason: 'persistence_failed' });
     });
+
+    test('getAccessibleResources lanza error → token_exchange_failed, no persiste credenciales', async () => {
+        prisma.jiraOAuthState.findUnique.mockResolvedValue({ state: 'S', userId: 'u1', expiresAt: new Date(Date.now() + 60000) });
+        prisma.jiraOAuthState.delete.mockResolvedValue({});
+        prisma.user.findUnique.mockResolvedValue({ id: 'u1' });
+        client.exchangeCodeForTokens.mockResolvedValue({ accessToken: 'AT', refreshToken: 'RT' });
+        client.getAccessibleResources.mockRejectedValue(new Error('network error'));
+        const result = await service.handleCallback({ code: 'C', state: 'S' });
+        expect(result).toEqual({ outcome: 'error', reason: 'token_exchange_failed' });
+        expect(prisma.user.update).not.toHaveBeenCalled();
+    });
+
+    test('cloudId con formato inválido (CLOUD_ID_REGEX) → no_jira_site', async () => {
+        prisma.jiraOAuthState.findUnique.mockResolvedValue({ state: 'S', userId: 'u1', expiresAt: new Date(Date.now() + 60000) });
+        prisma.jiraOAuthState.delete.mockResolvedValue({});
+        prisma.user.findUnique.mockResolvedValue({ id: 'u1' });
+        client.exchangeCodeForTokens.mockResolvedValue({ accessToken: 'AT', refreshToken: 'RT' });
+        client.getAccessibleResources.mockResolvedValue([{ id: 'invalid/cloud_id', url: 'https://acme.atlassian.net' }]);
+        const result = await service.handleCallback({ code: 'C', state: 'S' });
+        expect(result).toEqual({ outcome: 'error', reason: 'no_jira_site' });
+        expect(prisma.user.update).not.toHaveBeenCalled();
+    });
 });
 
 describe('jira.service — getStatus', () => {

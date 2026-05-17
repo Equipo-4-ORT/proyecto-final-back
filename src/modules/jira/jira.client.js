@@ -258,6 +258,35 @@ const apiGet = async (cloudId, accessToken, pathAndQuery, label) => {
 };
 
 /**
+ * Paginación genérica sobre endpoints de Jira REST API v3.
+ * @param {Function} extractPage - recibe el JSON parseado y devuelve el array de items de la página.
+ * @returns {Promise<Array>}
+ */
+const paginatedGet = async (cloudId, accessToken, path, label, extractPage) => {
+    const items = [];
+    let startAt = 0;
+    while (true) {
+        const query = new URLSearchParams({ startAt: String(startAt), maxResults: '100' });
+        const response = await apiGet(cloudId, accessToken, `${path}?${query.toString()}`, label);
+        if (response.status === 401 || response.status === 403) {
+            throw new JiraReconnectRequiredError(`Token sin permisos para ${label}`);
+        }
+        if (!response.ok) {
+            throw new JiraUpstreamError(`Atlassian respondió ${response.status} en ${label}`);
+        }
+        const data = await parseJsonSafe(response);
+        const page = extractPage(data);
+        items.push(...page);
+        const total = Number(data?.total ?? items.length);
+        startAt += 100;
+        if (page.length === 0 || startAt >= total) {
+            break;
+        }
+    }
+    return items;
+};
+
+/**
  * @returns {Promise<{accountId: string, emailAddress: string, displayName: string}>}
  */
 const getMyself = async (cloudId, accessToken) => {
@@ -319,77 +348,17 @@ const searchIssuesUpdatedInRange = async (cloudId, accessToken, dateStart, dateE
     return issues;
 };
 
-const getChangelog = async (cloudId, accessToken, issueKey) => {
-    const histories = [];
-    let startAt = 0;
-    while (true) {
-        const query = new URLSearchParams({ startAt: String(startAt), maxResults: '100' });
-        const response = await apiGet(cloudId, accessToken, `/issue/${encodeURIComponent(issueKey)}/changelog?${query.toString()}`, 'changelog');
-        if (response.status === 401 || response.status === 403) {
-            throw new JiraReconnectRequiredError('Token sin permisos para /changelog');
-        }
-        if (!response.ok) {
-            throw new JiraUpstreamError(`Atlassian respondió ${response.status} en /changelog`);
-        }
-        const data = await parseJsonSafe(response);
-        const page = Array.isArray(data?.values) ? data.values : [];
-        histories.push(...page);
-        const total = Number(data?.total ?? histories.length);
-        startAt += 100;
-        if (page.length === 0 || startAt >= total) {
-            break;
-        }
-    }
-    return histories;
-};
+const getChangelog = (cloudId, accessToken, issueKey) =>
+    paginatedGet(cloudId, accessToken, `/issue/${encodeURIComponent(issueKey)}/changelog`, 'changelog',
+        (d) => Array.isArray(d?.values) ? d.values : []);
 
-const getComments = async (cloudId, accessToken, issueKey) => {
-    const comments = [];
-    let startAt = 0;
-    while (true) {
-        const query = new URLSearchParams({ startAt: String(startAt), maxResults: '100' });
-        const response = await apiGet(cloudId, accessToken, `/issue/${encodeURIComponent(issueKey)}/comment?${query.toString()}`, 'comment');
-        if (response.status === 401 || response.status === 403) {
-            throw new JiraReconnectRequiredError('Token sin permisos para /comment');
-        }
-        if (!response.ok) {
-            throw new JiraUpstreamError(`Atlassian respondió ${response.status} en /comment`);
-        }
-        const data = await parseJsonSafe(response);
-        const page = Array.isArray(data?.comments) ? data.comments : [];
-        comments.push(...page);
-        const total = Number(data?.total ?? comments.length);
-        startAt += 100;
-        if (page.length === 0 || startAt >= total) {
-            break;
-        }
-    }
-    return comments;
-};
+const getComments = (cloudId, accessToken, issueKey) =>
+    paginatedGet(cloudId, accessToken, `/issue/${encodeURIComponent(issueKey)}/comment`, 'comment',
+        (d) => Array.isArray(d?.comments) ? d.comments : []);
 
-const getWorklogs = async (cloudId, accessToken, issueKey) => {
-    const worklogs = [];
-    let startAt = 0;
-    while (true) {
-        const query = new URLSearchParams({ startAt: String(startAt), maxResults: '100' });
-        const response = await apiGet(cloudId, accessToken, `/issue/${encodeURIComponent(issueKey)}/worklog?${query.toString()}`, 'worklog');
-        if (response.status === 401 || response.status === 403) {
-            throw new JiraReconnectRequiredError('Token sin permisos para /worklog');
-        }
-        if (!response.ok) {
-            throw new JiraUpstreamError(`Atlassian respondió ${response.status} en /worklog`);
-        }
-        const data = await parseJsonSafe(response);
-        const page = Array.isArray(data?.worklogs) ? data.worklogs : [];
-        worklogs.push(...page);
-        const total = Number(data?.total ?? worklogs.length);
-        startAt += 100;
-        if (page.length === 0 || startAt >= total) {
-            break;
-        }
-    }
-    return worklogs;
-};
+const getWorklogs = (cloudId, accessToken, issueKey) =>
+    paginatedGet(cloudId, accessToken, `/issue/${encodeURIComponent(issueKey)}/worklog`, 'worklog',
+        (d) => Array.isArray(d?.worklogs) ? d.worklogs : []);
 
 module.exports = {
     buildAuthorizationUrl,

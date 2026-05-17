@@ -25,14 +25,6 @@ class JiraUserNotFoundError extends JiraError {
     }
 }
 
-class JiraInvalidStateError extends JiraError {
-    constructor(message = 'El parámetro state es inválido o expiró', options) {
-        super(message, options);
-        this.status = 400;
-        this.code = 'invalid_state';
-    }
-}
-
 class JiraNotConnectedError extends JiraError {
     constructor(message = 'El usuario no tiene una conexión Jira activa', options) {
         super(message, options);
@@ -65,14 +57,6 @@ class JiraTokenExchangeError extends JiraError {
     }
 }
 
-class JiraNoSiteError extends JiraError {
-    constructor(message = 'La cuenta de Atlassian no tiene un site Jira accesible', options) {
-        super(message, options);
-        this.status = 502;
-        this.code = 'no_jira_site';
-    }
-}
-
 class JiraTimeoutError extends JiraError {
     constructor(message = 'Timeout al comunicarse con Atlassian', options) {
         super(message, options);
@@ -92,12 +76,10 @@ class JiraUpstreamError extends JiraError {
 module.exports = {
     JiraError,
     JiraUserNotFoundError,
-    JiraInvalidStateError,
     JiraNotConnectedError,
     JiraReconnectRequiredError,
     JiraInvalidWindowError,
     JiraTokenExchangeError,
-    JiraNoSiteError,
     JiraTimeoutError,
     JiraUpstreamError,
 };

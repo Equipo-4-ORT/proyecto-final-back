@@ -115,6 +115,15 @@ describe('jira.controller — getStatus', () => {
         expect(res.json).toHaveBeenCalledWith({ connected: false, siteUrl: null, lastSyncAt: null, reconnectRequired: false });
     });
 
+    test('sin req.user → next con error 401', async () => {
+        const req = {};
+        const res = makeRes();
+        const next = jest.fn();
+        await controller.getStatus(req, res, next);
+        expect(next).toHaveBeenCalledWith(expect.objectContaining({ status: 401, code: 'unauthenticated' }));
+        expect(service.getStatus).not.toHaveBeenCalled();
+    });
+
     test('error del service (p.ej. user_not_found) → next(error)', async () => {
         const err = Object.assign(new Error('nope'), { status: 404 });
         service.getStatus.mockRejectedValue(err);
@@ -136,6 +145,15 @@ describe('jira.controller — disconnect', () => {
         expect(res.status).toHaveBeenCalledWith(204);
         expect(res.send).toHaveBeenCalled();
     });
+
+    test('sin req.user → next con error 401', async () => {
+        const req = {};
+        const res = makeRes();
+        const next = jest.fn();
+        await controller.disconnect(req, res, next);
+        expect(next).toHaveBeenCalledWith(expect.objectContaining({ status: 401, code: 'unauthenticated' }));
+        expect(service.disconnect).not.toHaveBeenCalled();
+    });
 });
 
 describe('jira.controller — triggerSync', () => {
@@ -147,6 +165,15 @@ describe('jira.controller — triggerSync', () => {
         expect(service.syncForUser).toHaveBeenCalledWith('u1', '2026-05-10T09:00:00Z', '2026-05-10T18:00:00Z');
         expect(res.status).toHaveBeenCalledWith(200);
         expect(res.json).toHaveBeenCalledWith({ imported: 3, skippedDuplicates: 1, durationMs: 12 });
+    });
+
+    test('sin req.user → next con error 401', async () => {
+        const req = {};
+        const res = makeRes();
+        const next = jest.fn();
+        await controller.triggerSync(req, res, next);
+        expect(next).toHaveBeenCalledWith(expect.objectContaining({ status: 401, code: 'unauthenticated' }));
+        expect(service.syncForUser).not.toHaveBeenCalled();
     });
 
     test('body ausente → llama al service con undefined (el service valida la ventana)', async () => {
