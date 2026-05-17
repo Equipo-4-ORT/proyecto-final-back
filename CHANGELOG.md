@@ -5,6 +5,21 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+
+- Jira integration module (`src/modules/jira/`) implementing Atlassian OAuth 2.0 3LO flow with `jira.client.js`, `jira.service.js`, `jira.controller.js`, `jira.routes.js`, `jira.mapper.js`, `jira.constants.js`, and `jira.errors.js`
+- Jira REST endpoints under `/api/jira`: `GET /auth` (initiate connection), `GET /auth/callback` (public, OAuth state-authorized), `GET /status`, `DELETE /connection`, and `POST /sync` (worklog ingestion with configurable date window)
+- Encrypted storage of Jira refresh tokens (AES-256-GCM) and per-user connection state on the `User` model (`jiraCloudId`, `jiraSiteUrl`, `jiraConnectedAt`, `jiraLastSyncAt`, `jiraReconnectRequired`)
+- `JiraOAuthState` model for short-lived OAuth `state` tokens (10-minute TTL, cascaded on user delete)
+- `DailyActivity.externalId` field plus `@@unique([userId, source, externalId])` and `@@index([userId, source, startTime])` for idempotent Jira worklog ingestion
+- Centralized config module (`src/shared/config/index.js`) exposing `frontendBaseUrl`, `port`, and `nodeEnv`
+- Environment variables for Jira integration: `JIRA_CLIENT_ID`, `JIRA_CLIENT_SECRET`, `JIRA_REDIRECT_URI`, `JIRA_SCOPES`, `JIRA_REQUEST_TIMEOUT_MS`, `JIRA_SYNC_MAX_WINDOW_HOURS`, and `FRONTEND_BASE_URL`
+
+### Changed
+
+- `/health` endpoint trimmed to `status` and `timestamp` (removed `uptime` and `environment` to avoid exposing runtime details)
+- `DailyActivity.source` comment updated to include `'jira'` as a valid value
+
 ## [0.3.0] - 2026-05-17
 
 ### Added
