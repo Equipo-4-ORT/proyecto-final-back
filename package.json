@@ -31,6 +31,9 @@
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
+    "express-rate-limit": "^7.0.0",
+    "google-auth-library": "^10.6.2",
+    "jsonwebtoken": "^9.0.3",
     "winston": "^3.19.0"
   },
   "devDependencies": {
@@ -38,6 +41,7 @@
     "eslint": "^10.2.0",
     "globals": "^17.5.0",
     "jest": "^30.3.0",
+    "supertest": "^7.0.0",
     "nodemon": "^3.1.14",
     "prettier": "^3.8.3",
     "prisma": "^6.19.3"
@@ -50,6 +54,24 @@
   },
   "jest": {
     "testMatch": ["<rootDir>/tests/**/*.test.js"],
-    "collectCoverageFrom": ["src/**/*.js"]
+    "collectCoverageFrom": [
+      "src/**/*.js",
+      "!src/server.js",
+      "!src/app.js",
+      "!src/shared/database/prisma.js",
+      "!src/shared/utils/logger.js",
+      "!src/**/index.js",
+      "!src/**/*.dto.js",
+      "!src/**/*.constants.js",
+      "!src/**/*.config.js"
+    ],
+    "coverageThreshold": {
+      "global": {
+        "lines": 80,
+        "branches": 80,
+        "functions": 80,
+        "statements": 80
+      }
+    }
   }
 }

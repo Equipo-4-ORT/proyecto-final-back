@@ -27,3 +27,26 @@ jobs:
 
       - name: Run tests
         run: npm test
+
+  coverage:
+    name: Coverage Check (80%)
+    runs-on: ubuntu-latest
+    if: >-
+      github.base_ref == 'main' ||
+      (github.base_ref == 'develop' && !startsWith(github.head_ref, 'release/'))
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check coverage
+        run: npm run test:coverage

@@ -141,3 +141,6 @@ vite.config.ts.timestamp-*
 # Local-only pre-commit stub (silences global core.hooksPath on this machine)
 .pre-commit-config.yaml
 
+# Claude Code local session data
+.claude/
+
