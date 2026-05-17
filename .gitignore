@@ -140,7 +140,6 @@ vite.config.ts.timestamp-*
 
 # Local-only pre-commit stub (silences global core.hooksPath on this machine)
 .pre-commit-config.yaml
-
 # Configuración local de herramientas de desarrollo (nunca commitear)
 .claude/
 .vscode/
