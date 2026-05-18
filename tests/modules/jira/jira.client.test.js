@@ -35,6 +35,7 @@ describe('jira.client', () => {
         client._internal.RETRY.timeoutDelayMs = 0;
         client._internal.RETRY.rateLimitDelayMs = 0;
         client._internal.RETRY.serverErrorDelaysMs = [0, 0];
+        client._internal.RETRY.maxRetryAfterMs = 30_000;
         config.requestTimeoutMs = originalTimeout;
     });
 
@@ -288,6 +289,16 @@ describe('jira.client', () => {
         test('429: respeta el retry y reintenta una vez', async () => {
             global.fetch
                 .mockResolvedValueOnce(errResponse(429, { retryAfter: '0' }))
+                .mockResolvedValueOnce(okJson([{ id: 'c1' }]));
+            const result = await client.getAccessibleResources('AT');
+            expect(result).toEqual([{ id: 'c1' }]);
+            expect(global.fetch).toHaveBeenCalledTimes(2);
+        });
+
+        test('429 con Retry-After grande: topa el wait al máximo configurado', async () => {
+            client._internal.RETRY.maxRetryAfterMs = 0; // evitar esperar 30s en el test
+            global.fetch
+                .mockResolvedValueOnce(errResponse(429, { retryAfter: '3600' }))
                 .mockResolvedValueOnce(okJson([{ id: 'c1' }]));
             const result = await client.getAccessibleResources('AT');
             expect(result).toEqual([{ id: 'c1' }]);

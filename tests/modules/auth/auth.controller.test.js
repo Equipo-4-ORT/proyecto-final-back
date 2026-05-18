@@ -6,7 +6,7 @@ jest.mock('../../../src/modules/auth/auth.service', () => {
         }
     }
     return {
-        getGoogleAuthUrl: jest.fn().mockReturnValue('https://mock-google-url.com'),
+        getGoogleAuthUrl: jest.fn().mockResolvedValue('https://mock-google-url.com'),
         handleGoogleCallback: jest.fn(),
         InsufficientScopesError,
     };
@@ -33,8 +33,8 @@ describe('Auth Controller', () => {
 
     // ── redirectToGoogle ─────────────────────────────────────────────────────
     describe('redirectToGoogle()', () => {
-        test('Redirige a la URL de Google generada por auth.service', () => {
-            redirectToGoogle(req, res);
+        test('Redirige a la URL de Google generada por auth.service', async () => {
+            await redirectToGoogle(req, res);
 
             expect(getGoogleAuthUrl).toHaveBeenCalledTimes(1);
             expect(res.redirect).toHaveBeenCalledWith('https://mock-google-url.com');

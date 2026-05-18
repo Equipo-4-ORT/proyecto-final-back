@@ -1,5 +1,8 @@
 // Archivo: tests/shared/middleware/authMiddleware.test.js
 
+// Debe definirse antes del require para que el módulo no lance al cargarse.
+process.env.JWT_SECRET = 'super-secret-test-key';
+
 const jwt = require('jsonwebtoken');
 const { authMiddleware } = require('../../../src/shared/middleware');
 const logger = require('../../../src/shared/utils/logger');
@@ -15,19 +18,12 @@ describe('Middleware: authMiddleware', () => {
 
   // Se ejecuta antes de cada test para reiniciar el estado
   beforeEach(() => {
-    req = {
-      headers: {},
-    };
+    req = { headers: {} };
     res = {
       status: jest.fn().mockReturnThis(),
       json: jest.fn(),
     };
     next = jest.fn();
-
-    // Seteamos la variable de entorno necesaria
-    process.env.JWT_SECRET = 'super-secret-test-key';
-
-    // Limpiamos los mocks
     jest.clearAllMocks();
   });
 
@@ -112,5 +108,18 @@ describe('Middleware: authMiddleware', () => {
     expect(res.status).toHaveBeenCalledWith(401);
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ error: 'Token inválido' }));
     expect(next).not.toHaveBeenCalled();
+  });
+
+  test('5. Debería lanzar al cargar el módulo si JWT_SECRET no está definida', () => {
+    jest.isolateModules(() => {
+      const savedSecret = process.env.JWT_SECRET;
+      delete process.env.JWT_SECRET;
+
+      expect(() => {
+        require('../../../src/shared/middleware/authMiddleware');
+      }).toThrow('JWT_SECRET environment variable is required');
+
+      process.env.JWT_SECRET = savedSecret;
+    });
   });
 });

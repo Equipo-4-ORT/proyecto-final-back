@@ -15,6 +15,13 @@ jest.mock('../../../src/shared/utils/crypto', () => ({
     encrypt: jest.fn(),
     decrypt: jest.fn(),
 }));
+jest.mock('../../../src/shared/database/prisma', () => ({
+    googleOAuthState: {
+        create: jest.fn().mockResolvedValue({}),
+        findUnique: jest.fn(),
+        delete: jest.fn().mockResolvedValue({}),
+    },
+}));
 
 jest.mock('google-auth-library', () => {
     const mockInstance = {
@@ -31,6 +38,7 @@ const { OAuth2Client } = require('google-auth-library');
 const { verifyGoogleToken } = require('../../../src/modules/google/google.service');
 const { upsertGoogleUser } = require('../../../src/modules/users/users.service');
 const { encrypt } = require('../../../src/shared/utils/crypto');
+const prisma = require('../../../src/shared/database/prisma');
 
 const {
     asignarRol,
@@ -53,14 +61,6 @@ const FULL_SCOPES = [
 ].join(' ');
 
 describe('Auth Service', () => {
-    beforeAll(() => {
-        jest.useFakeTimers();
-    });
-
-    afterAll(() => {
-        jest.useRealTimers();
-    });
-
     beforeEach(() => {
         jest.clearAllMocks();
     });
@@ -102,10 +102,10 @@ describe('Auth Service', () => {
 
     // ── getGoogleAuthUrl ─────────────────────────────────────────────────────
     describe('getGoogleAuthUrl()', () => {
-        test('Devuelve la URL generada por OAuth2Client', () => {
+        test('Devuelve la URL generada por OAuth2Client y persiste el state en BD', async () => {
             mockClient.generateAuthUrl.mockReturnValue('https://accounts.google.com/mock');
 
-            const url = getGoogleAuthUrl();
+            const url = await getGoogleAuthUrl();
 
             expect(url).toBe('https://accounts.google.com/mock');
             expect(mockClient.generateAuthUrl).toHaveBeenCalledWith(
@@ -115,13 +115,21 @@ describe('Auth Service', () => {
                     state: expect.any(String),
                 })
             );
+            expect(prisma.googleOAuthState.create).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        state: expect.any(String),
+                        expiresAt: expect.any(Date),
+                    }),
+                })
+            );
         });
 
-        test('Genera un state distinto en cada llamada', () => {
+        test('Genera un state distinto en cada llamada', async () => {
             mockClient.generateAuthUrl.mockReturnValue('https://accounts.google.com/mock');
 
-            getGoogleAuthUrl();
-            getGoogleAuthUrl();
+            await getGoogleAuthUrl();
+            await getGoogleAuthUrl();
 
             const state1 = mockClient.generateAuthUrl.mock.calls[0][0].state;
             const state2 = mockClient.generateAuthUrl.mock.calls[1][0].state;
@@ -130,36 +138,56 @@ describe('Auth Service', () => {
     });
 
     // ── handleGoogleCallback ─────────────────────────────────────────────────
+    // Helper: registro válido de estado tal como lo devolvería prisma.
+    const validStoredState = (state = 'valid-state-abc') => ({
+        state,
+        expiresAt: new Date(Date.now() + 60_000),
+        userId: null,
+        createdAt: new Date(),
+    });
+
     describe('handleGoogleCallback()', () => {
-        test('Lanza error si el state es inválido', async () => {
+        test('Lanza error si el state no existe en BD', async () => {
+            prisma.googleOAuthState.findUnique.mockResolvedValue(null);
+
             await expect(
                 handleGoogleCallback('code', 'state-que-no-existe')
             ).rejects.toThrow('State inválido o expirado');
         });
 
-        test('Lanza error si el state está vacío', async () => {
+        test('Lanza error si el state está vacío (null)', async () => {
             await expect(
                 handleGoogleCallback('code', null)
             ).rejects.toThrow('State inválido o expirado');
+            // Con state=null el código cortocircuita antes de llamar a findUnique
+            expect(prisma.googleOAuthState.findUnique).not.toHaveBeenCalled();
+        });
+
+        test('Lanza error si el state expiró', async () => {
+            prisma.googleOAuthState.findUnique.mockResolvedValue({
+                state: 'expired-state',
+                expiresAt: new Date(Date.now() - 1000),
+                userId: null,
+                createdAt: new Date(),
+            });
+
+            await expect(
+                handleGoogleCallback('code', 'expired-state')
+            ).rejects.toThrow('State inválido o expirado');
+            expect(prisma.googleOAuthState.delete).toHaveBeenCalledWith({ where: { state: 'expired-state' } });
         });
 
         test('Lanza InsufficientScopesError si el usuario no otorgó todos los permisos', async () => {
-            mockClient.generateAuthUrl.mockReturnValue('https://accounts.google.com/mock');
-            getGoogleAuthUrl();
-            const { state } = mockClient.generateAuthUrl.mock.calls[0][0];
-
+            prisma.googleOAuthState.findUnique.mockResolvedValue(validStoredState());
             mockClient.getToken.mockResolvedValue({
                 tokens: { id_token: 'tok', refresh_token: null, scope: 'openid email' },
             });
 
-            await expect(handleGoogleCallback('code', state)).rejects.toThrow(InsufficientScopesError);
+            await expect(handleGoogleCallback('code', 'valid-state-abc')).rejects.toThrow(InsufficientScopesError);
         });
 
         test('Flujo exitoso: verifica token, encripta refresh, crea usuario y devuelve JWT', async () => {
-            mockClient.generateAuthUrl.mockReturnValue('https://accounts.google.com/mock');
-            getGoogleAuthUrl();
-            const { state } = mockClient.generateAuthUrl.mock.calls[0][0];
-
+            prisma.googleOAuthState.findUnique.mockResolvedValue(validStoredState());
             const mockUser = { id: 'uuid-1', email: 'user@test.com', role: 'EMPLOYEE' };
             mockClient.getToken.mockResolvedValue({
                 tokens: { id_token: 'id-tok', refresh_token: 'refresh-tok', scope: FULL_SCOPES },
@@ -169,7 +197,7 @@ describe('Auth Service', () => {
             upsertGoogleUser.mockResolvedValue(mockUser);
             jwt.sign.mockReturnValue('signed-jwt');
 
-            const result = await handleGoogleCallback('auth-code', state);
+            const result = await handleGoogleCallback('auth-code', 'valid-state-abc');
 
             expect(result).toBe('signed-jwt');
             expect(verifyGoogleToken).toHaveBeenCalledWith('id-tok');
@@ -178,13 +206,11 @@ describe('Auth Service', () => {
                 expect.objectContaining({ email: 'user@test.com' }),
                 'encrypted-refresh'
             );
+            expect(prisma.googleOAuthState.delete).toHaveBeenCalledWith({ where: { state: 'valid-state-abc' } });
         });
 
         test('Guarda null como refreshToken si Google no devuelve uno', async () => {
-            mockClient.generateAuthUrl.mockReturnValue('https://accounts.google.com/mock');
-            getGoogleAuthUrl();
-            const { state } = mockClient.generateAuthUrl.mock.calls[0][0];
-
+            prisma.googleOAuthState.findUnique.mockResolvedValue(validStoredState());
             mockClient.getToken.mockResolvedValue({
                 tokens: { id_token: 'id-tok', refresh_token: null, scope: FULL_SCOPES },
             });
@@ -192,17 +218,16 @@ describe('Auth Service', () => {
             upsertGoogleUser.mockResolvedValue({ id: 'uuid-1', email: 'user@test.com', role: 'EMPLOYEE' });
             jwt.sign.mockReturnValue('signed-jwt');
 
-            await handleGoogleCallback('auth-code', state);
+            await handleGoogleCallback('auth-code', 'valid-state-abc');
 
             expect(encrypt).not.toHaveBeenCalled();
             expect(upsertGoogleUser).toHaveBeenCalledWith(expect.any(Object), null);
         });
 
         test('El state queda consumido y no puede usarse dos veces', async () => {
-            mockClient.generateAuthUrl.mockReturnValue('https://accounts.google.com/mock');
-            getGoogleAuthUrl();
-            const { state } = mockClient.generateAuthUrl.mock.calls[0][0];
-
+            prisma.googleOAuthState.findUnique
+                .mockResolvedValueOnce(validStoredState())
+                .mockResolvedValueOnce(null);
             mockClient.getToken.mockResolvedValue({
                 tokens: { id_token: 'id-tok', refresh_token: null, scope: FULL_SCOPES },
             });
@@ -210,9 +235,9 @@ describe('Auth Service', () => {
             upsertGoogleUser.mockResolvedValue({ id: '1', email: 'u@t.com', role: 'EMPLOYEE' });
             jwt.sign.mockReturnValue('jwt');
 
-            await handleGoogleCallback('code', state);
+            await handleGoogleCallback('code', 'valid-state-abc');
 
-            await expect(handleGoogleCallback('code', state)).rejects.toThrow('State inválido o expirado');
+            await expect(handleGoogleCallback('code', 'valid-state-abc')).rejects.toThrow('State inválido o expirado');
         });
     });
 });
