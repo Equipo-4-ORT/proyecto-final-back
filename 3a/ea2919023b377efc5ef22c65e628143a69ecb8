@@ -1,0 +1,34 @@
+tests/modules/auth/auth.service.test.js
+  s_6671a65c6f9127::t_1280c8aa9e78cf 105,108,118-125,128,131-132,141-148,150-152,158,162-163,166-178,180-181,186,190,200,209,213,221,228-230,238,240
+  s_6671a65c6f9127::t_566d02e3a4e506 18-24
+  s_6671a65c6f9127::t_4bb80f96448cf6 41
+tests/modules/auth/auth.controller.test.js
+  s_6671a65c6f9127::t_03833e54314918 36-37
+  s_6671a65c6f9127::t_425a06f60e961f 9
+tests/modules/jira/jira.client.test.js
+  s_6671a65c6f9127::t_953482d2933402 298-307
+  s_6671a65c6f9127::t_30c3e1ffdd4edf 38
+src/modules/jira/jira.client.js
+  s_6671a65c6f9127::t_ec4aa993251a5c 33
+  s_6671a65c6f9127::t_58391efb56d434 79
+tests/shared/middleware/authMiddleware.test.js
+  s_6671a65c6f9127::t_6a3e68dd2e0f91 21
+  s_6671a65c6f9127::t_3586d08cb23934 112-124
+  s_6671a65c6f9127::t_f8e0f88b3a6ddf 3-5
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.9",
+  "base_commit_sha": "3aea2919023b377efc5ef22c65e628143a69ecb8",
+  "prompts": {},
+  "sessions": {
+    "s_6671a65c6f9127": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "929e4439-c0f0-4f90-b141-6d079fe38f05",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "LicFuraca <martinexequield@gmail.com>"
+    }
+  }
+}
