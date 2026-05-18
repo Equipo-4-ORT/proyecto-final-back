@@ -24,8 +24,7 @@ enum Role {
 
 enum ReportStatus {
   PENDING
-  EDITED
-  APPROVED
+  SENT
 }
 
 // los modelos
@@ -70,8 +69,8 @@ model Report {
   id           String   @id @default(uuid())
   userId       String   @map("user_id")
   reportDate   DateTime @db.Date @map("report_date")
-  aiSummary    String?  @map("ai_summary")
-  finalContent String?  @map("final_content")
+  xlsxUrl      String?  @db.VarChar(255) @map("xlsx_url")
+  sentAt       DateTime? @map("sent_at")
   status       ReportStatus @default(PENDING)
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @default(now()) @updatedAt @map("updated_at")

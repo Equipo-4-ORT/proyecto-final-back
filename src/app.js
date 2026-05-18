@@ -16,7 +16,9 @@ app.use('/auth', authLimiter);
 app.use('/api', apiLimiter);
 
 const authRoutes = require('./modules/auth/auth.routes');
+const userRoutes = require('./modules/users/users.routes');
 app.use('/auth', authRoutes);
+app.use('/users', userRoutes);
 
 app.get('/health', (req, res) => {
   res.status(200).json({
