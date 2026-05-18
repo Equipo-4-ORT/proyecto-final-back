@@ -5,8 +5,8 @@ const {
 } = require('./auth.service');
 const logger = require('../../shared/utils/logger');
 
-const redirectToGoogle = (req, res) => {
-  const url = getGoogleAuthUrl();
+const redirectToGoogle = async (req, res) => {
+  const url = await getGoogleAuthUrl();
   res.redirect(url);
 };
 

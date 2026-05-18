@@ -55,6 +55,16 @@ model User {
   @@map("users") // Buenas prácticas: la tabla en SQL se llamará "users" en minúscula
 }
 
+// Estado del flujo OAuth de Google (vive minutos; se borra al consumir el callback)
+model GoogleOAuthState {
+  state     String   @id
+  userId    String?  @map("user_id")
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("google_oauth_states")
+}
+
 // Estado del flujo OAuth 3LO de Jira (vive minutos; se borra al consumir el callback)
 model JiraOAuthState {
   state     String   @id // crypto.randomBytes(32).toString('hex')

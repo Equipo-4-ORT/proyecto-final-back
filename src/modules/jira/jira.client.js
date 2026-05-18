@@ -32,6 +32,8 @@ const RETRY = {
     serverErrorDelaysMs: [1000, 2000],
 };
 
+const MAX_RETRY_AFTER_MS = 30_000;
+
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
@@ -75,7 +77,7 @@ const fetchWithRetry = async (url, options = {}, { label = 'atlassian' } = {}) =
             rateLimitRetried = true;
             const retryAfter = Number(response.headers.get('retry-after'));
             const waitMs = Number.isFinite(retryAfter) && retryAfter > 0
-                ? retryAfter * 1000
+                ? Math.min(retryAfter * 1000, MAX_RETRY_AFTER_MS)
                 : RETRY.rateLimitDelayMs;
             logger.warn('jira.upstream.rate_limited', { endpoint: label, waitMs });
             await sleep(waitMs);

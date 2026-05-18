@@ -2,6 +2,7 @@ const jwt = require('jsonwebtoken');
 const { randomBytes } = require('crypto');
 const { OAuth2Client } = require('google-auth-library');
 const logger = require('../../shared/utils/logger');
+const prisma = require('../../shared/database/prisma');
 const { verifyGoogleToken } = require('../google/google.service');
 const { upsertGoogleUser } = require('../users/users.service');
 const { encrypt } = require('../../shared/utils/crypto');
@@ -31,7 +32,7 @@ const REQUIRED_SCOPES = [
   'https://www.googleapis.com/auth/documents',
 ];
 
-const pendingStates = new Set();
+const GOOGLE_OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 
 const ADMIN_KEY_HEADER = process.env.ADMIN_KEY_HEADER || 'X-Admin-Key';
 const ADMIN_SECRET_KEY = process.env.ADMIN_SECRET_KEY;
@@ -50,11 +51,14 @@ class InsufficientScopesError extends Error {
   }
 }
 
-const getGoogleAuthUrl = () => {
+const getGoogleAuthUrl = async () => {
   const state = randomBytes(16).toString('hex');
-  pendingStates.add(state);
-  // Limpia el state después de 10 minutos
-  setTimeout(() => pendingStates.delete(state), 10 * 60 * 1000);
+  await prisma.googleOAuthState.create({
+    data: {
+      state,
+      expiresAt: new Date(Date.now() + GOOGLE_OAUTH_STATE_TTL_MS),
+    },
+  });
 
   return client.generateAuthUrl({
     access_type: 'offline',
@@ -71,10 +75,12 @@ const generateJWT = (user) => {
 };
 
 const handleGoogleCallback = async (code, state) => {
-  if (!state || !pendingStates.has(state)) {
+  const stored = state ? await prisma.googleOAuthState.findUnique({ where: { state } }) : null;
+  if (!stored || stored.expiresAt.getTime() < Date.now()) {
+    if (stored) await prisma.googleOAuthState.delete({ where: { state } }).catch(() => {});
     throw new Error('State inválido o expirado');
   }
-  pendingStates.delete(state);
+  await prisma.googleOAuthState.delete({ where: { state } }).catch(() => {});
 
   const { tokens } = await client.getToken(code);
   const grantedScopes = (tokens.scope || '').split(' ');
