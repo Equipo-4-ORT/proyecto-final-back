@@ -127,25 +127,32 @@ describe('jira.client', () => {
     });
 
     describe('searchIssuesUpdatedInRange', () => {
-        test('recorre la paginación con startAt hasta agotar total', async () => {
+        test('recorre la paginación con nextPageToken hasta isLast', async () => {
             global.fetch
-                .mockResolvedValueOnce(okJson({ total: 60, issues: new Array(50).fill(0).map((_, i) => ({ key: `P-${i}` })) }))
-                .mockResolvedValueOnce(okJson({ total: 60, issues: [{ key: 'P-50' }, { key: 'P-51' }] }));
+                .mockResolvedValueOnce(okJson({ isLast: false, nextPageToken: 'tok-2', issues: new Array(50).fill(0).map((_, i) => ({ key: `P-${i}` })) }))
+                .mockResolvedValueOnce(okJson({ isLast: true, issues: [{ key: 'P-50' }, { key: 'P-51' }] }));
             const issues = await client.searchIssuesUpdatedInRange('cloud-1', 'AT', '2026-05-10T09:00:00Z', '2026-05-10T18:00:00Z');
             expect(issues).toHaveLength(52);
             expect(global.fetch).toHaveBeenCalledTimes(2);
 
             const firstUrl = new URL(global.fetch.mock.calls[0][0]);
-            expect(firstUrl.pathname).toBe('/ex/jira/cloud-1/rest/api/3/search');
+            expect(firstUrl.pathname).toBe('/ex/jira/cloud-1/rest/api/3/search/jql');
             expect(firstUrl.searchParams.get('jql')).toContain('assignee = currentUser()');
-            expect(firstUrl.searchParams.get('startAt')).toBe('0');
-            expect(new URL(global.fetch.mock.calls[1][0]).searchParams.get('startAt')).toBe('50');
+            expect(firstUrl.searchParams.has('nextPageToken')).toBe(false);
+            expect(new URL(global.fetch.mock.calls[1][0]).searchParams.get('nextPageToken')).toBe('tok-2');
         });
 
-        test('una sola página cuando issues < page size', async () => {
-            global.fetch.mockResolvedValueOnce(okJson({ total: 2, issues: [{ key: 'P-1' }, { key: 'P-2' }] }));
+        test('una sola página cuando isLast=true en la primera respuesta', async () => {
+            global.fetch.mockResolvedValueOnce(okJson({ isLast: true, issues: [{ key: 'P-1' }, { key: 'P-2' }] }));
             const issues = await client.searchIssuesUpdatedInRange('c', 'AT', '2026-05-10T09:00:00Z', '2026-05-10T18:00:00Z');
             expect(issues).toHaveLength(2);
+            expect(global.fetch).toHaveBeenCalledTimes(1);
+        });
+
+        test('corta cuando no viene nextPageToken aunque isLast no sea true', async () => {
+            global.fetch.mockResolvedValueOnce(okJson({ issues: [{ key: 'P-1' }] }));
+            const issues = await client.searchIssuesUpdatedInRange('c', 'AT', '2026-05-10T09:00:00Z', '2026-05-10T18:00:00Z');
+            expect(issues).toHaveLength(1);
             expect(global.fetch).toHaveBeenCalledTimes(1);
         });
 

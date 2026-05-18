@@ -305,46 +305,59 @@ const getMyself = async (cloudId, accessToken) => {
     };
 };
 
-/** Formatea una fecha al formato JQL ("yyyy/MM/dd HH:mm"), en UTC. */
-const toJqlDateTime = (date) => {
-    const d = new Date(date);
-    const pad = (n) => String(n).padStart(2, '0');
-    return `${d.getUTCFullYear()}/${pad(d.getUTCMonth() + 1)}/${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
-};
+// JQL acepta milisegundos epoch en filtros de fecha. Lo usamos porque el formato
+// string (`yyyy/MM/dd HH:mm`) lo interpreta Atlassian en la TZ del perfil del
+// usuario, lo que producía ventanas corridas para usuarios fuera de UTC.
+const toJqlEpoch = (date) => new Date(date).getTime();
+
+// Tope defensivo de páginas para /search/jql. Atlassian tiene un bug conocido donde
+// `isLast` puede no volverse `true` y `nextPageToken` cicla infinitamente
+// (ver atlassian/atlassian-mcp-server#118). Con SEARCH_PAGE_SIZE=50 esto cubre 10k issues.
+const MAX_SEARCH_PAGES = 200;
 
 /**
  * Issues asignados al usuario actual, actualizados dentro de la ventana, paginado.
+ *
+ * Usa `GET /rest/api/3/search/jql` (el viejo `/search` fue retirado por Atlassian
+ * en octubre 2025 — devuelve 410 Gone). Paginación por token: la respuesta trae
+ * `nextPageToken` e `isLast`; no hay `total` ni `startAt`.
+ *
  * @returns {Promise<Array<object>>} issues con `{ key, fields }`.
  */
 const searchIssuesUpdatedInRange = async (cloudId, accessToken, dateStart, dateEnd) => {
-    const jql = `assignee = currentUser() AND updated >= "${toJqlDateTime(dateStart)}" AND updated < "${toJqlDateTime(dateEnd)}" ORDER BY updated ASC`;
+    const jql = `assignee = currentUser() AND updated >= ${toJqlEpoch(dateStart)} AND updated < ${toJqlEpoch(dateEnd)} ORDER BY updated ASC`;
     const issues = [];
-    let startAt = 0;
+    let nextPageToken = null;
+    let pages = 0;
 
-    while (true) {
+    while (pages < MAX_SEARCH_PAGES) {
         const query = new URLSearchParams({
             jql,
-            startAt: String(startAt),
             maxResults: String(SEARCH_PAGE_SIZE),
             fields: 'summary,status,project,updated',
         });
-        const response = await apiGet(cloudId, accessToken, `/search?${query.toString()}`, 'search');
+        if (nextPageToken) {
+            query.set('nextPageToken', nextPageToken);
+        }
+        const response = await apiGet(cloudId, accessToken, `/search/jql?${query.toString()}`, 'search');
         if (response.status === 401 || response.status === 403) {
-            throw new JiraReconnectRequiredError('Token sin permisos para /search');
+            throw new JiraReconnectRequiredError('Token sin permisos para /search/jql');
         }
         if (!response.ok) {
-            throw new JiraUpstreamError(`Atlassian respondió ${response.status} en /search`);
+            throw new JiraUpstreamError(`Atlassian respondió ${response.status} en /search/jql`);
         }
         const data = await parseJsonSafe(response);
         const page = Array.isArray(data?.issues) ? data.issues : [];
         issues.push(...page);
+        pages += 1;
 
-        const total = Number(data?.total ?? issues.length);
-        startAt += SEARCH_PAGE_SIZE;
-        if (page.length === 0 || startAt >= total) {
-            break;
+        if (data?.isLast === true || !data?.nextPageToken || page.length === 0) {
+            return issues;
         }
+        nextPageToken = data.nextPageToken;
     }
+
+    logger.warn('jira.search.page_cap_reached', { pages, collected: issues.length });
     return issues;
 };
 
@@ -372,5 +385,5 @@ module.exports = {
     getComments,
     getWorklogs,
     // Exportados para los tests (acelerar backoffs, reusar helpers):
-    _internal: { RETRY, toJqlDateTime, fetchWithRetry },
+    _internal: { RETRY, toJqlEpoch, fetchWithRetry },
 };
