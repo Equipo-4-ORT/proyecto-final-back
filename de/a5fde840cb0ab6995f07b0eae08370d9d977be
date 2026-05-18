@@ -1,0 +1,31 @@
+src/modules/auth/auth.service.js
+  s_6671a65c6f9127::t_ca04e99f2c667a 35
+  s_6671a65c6f9127::t_52f93ef734df17 54,56-61
+  s_6671a65c6f9127::t_727fbb45dd5e02 78-80,83
+prisma/schema.prisma
+  s_6671a65c6f9127::t_7882164c4deb67 58-67
+src/shared/middleware/authMiddleware.js
+  s_6671a65c6f9127::t_3852784fff4353 4-6
+  s_6671a65c6f9127::t_8c40734ab03c8d 15
+src/modules/jira/jira.client.js
+  s_6671a65c6f9127::t_478a23dad7ae65 35-36
+  s_6671a65c6f9127::t_537ab53048cca7 80
+src/modules/auth/auth.controller.js
+  s_6671a65c6f9127::t_f679efc53793d6 8-9
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.9",
+  "base_commit_sha": "dea5fde840cb0ab6995f07b0eae08370d9d977be",
+  "prompts": {},
+  "sessions": {
+    "s_6671a65c6f9127": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "929e4439-c0f0-4f90-b141-6d079fe38f05",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "LicFuraca <martinexequield@gmail.com>"
+    }
+  }
+}
