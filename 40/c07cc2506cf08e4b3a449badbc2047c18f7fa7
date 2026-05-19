@@ -1,0 +1,19 @@
+src/modules/ai/ai.output.types.js
+  s_30bd35712a473a::t_b19d2c57445763 3-6,8-17,22-30,32,35-36,41-48,52-60,63,65-71,74
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.11",
+  "base_commit_sha": "40c07cc2506cf08e4b3a449badbc2047c18f7fa7",
+  "prompts": {},
+  "sessions": {
+    "s_30bd35712a473a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b4324bcc-c2ac-43cb-8eb2-d825f1e7daae",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "LicFuraca <martinexequield@gmail.com>"
+    }
+  }
+}
