@@ -3,6 +3,9 @@ const {
   handleGoogleCallback,
   InsufficientScopesError,
   UserNotActiveError,
+  InvalidAdminKeyError,
+  AdminAlreadyExistsError,
+  bootstrapAdmin,
 } = require('./auth.service');
 const logger = require('../../shared/utils/logger');
 
@@ -39,4 +42,33 @@ const googleCallback = async (req, res) => {
   }
 };
 
-module.exports = { redirectToGoogle, googleCallback };
+const createBootstrapAdmin = async (req, res) => {
+  try {
+    const adminKey = req.header('X-Admin-Key');
+    const {email, fullName} = req.body;
+      if (!email){
+        return res.status(400).json({ error: 'El campo email es requerido' });
+      }
+      const newAdmin = await bootstrapAdmin(email, fullName, adminKey);
+      return res.status(201).json({
+      message: 'Administrador maestro creado con éxito',
+      admin: {
+        id: newAdmin.id,
+        email: newAdmin.email,
+        role: newAdmin.role
+      }
+    });
+  } catch (error) {
+    if (error instanceof InvalidAdminKeyError) {
+      return res.status(401).json({ error: 'Llave de admin inválida' });
+    }
+    if (error instanceof AdminAlreadyExistsError) {
+      return res.status(409).json({ error: 'Ya existe un usuario con rol ADMIN' });
+    }
+    logger.error('Error al crear el administrador maestro', { error: error.message });
+    return res.status(500).json({ error: 'Error interno del servidor' });
+  }
+
+};
+
+module.exports = { redirectToGoogle, googleCallback, createBootstrapAdmin };

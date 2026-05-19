@@ -60,6 +60,13 @@ class UserNotActiveError extends Error {
   }
 }
 
+class AdminAlreadyExistsError extends Error {
+  constructor() {
+    super('Ya existe un usuario con rol ADMIN. No se pueden crear más administradores.');
+    this.name = 'AdminAlreadyExistsError';
+  }
+}
+
 const getGoogleAuthUrl = () => {
   const state = randomBytes(16).toString('hex');
   pendingStates.add(state);
@@ -123,12 +130,38 @@ const asignarRol = (adminKey) => {
   throw new InvalidAdminKeyError('Llave de admin inválida');
 };
 
+const bootstrapAdmin = async (email, fullName, providedKey) => {
+  if (providedKey !== ADMIN_SECRET_KEY) {
+    throw new InvalidAdminKeyError('Llave de admin inválida para bootstrap');
+  }
+
+  const existingAdmin = await prisma.user.findFirst({
+    where: { role: 'ADMIN' },
+  });
+  if (existingAdmin) {
+    throw new AdminAlreadyExistsError();
+  }
+
+  const newAdmin = await prisma.user.create({
+    data: {
+      email,
+      fullName,
+      role: 'ADMIN',
+      status: 'ACTIVE',
+    }
+  });
+return newAdmin;
+}
+
+
 module.exports = {
   asignarRol,
   InvalidAdminKeyError,
   InsufficientScopesError,
   UserNotActiveError,
   ADMIN_KEY_HEADER,
+  AdminAlreadyExistsError,
+  bootstrapAdmin,
   getGoogleAuthUrl,
   handleGoogleCallback,
   generateJWT,
