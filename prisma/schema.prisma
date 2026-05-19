@@ -22,6 +22,11 @@ enum Role {
   ADMIN
 }
 
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+}
+
 enum ReportStatus {
   PENDING
   SENT
@@ -37,6 +42,8 @@ model User {
   refreshToken  String?  @map("refresh_token") // Lo guardaremos encriptado luego
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @default(now()) @updatedAt @map("updated_at")
+  status        UserStatus @default(ACTIVE)
+  apiKey        String?   @map("api_key")  //Guardo la apikey como string? porque la llave la tiene solo el ADMIN
 
   // Relaciones
   activities    DailyActivity[]
