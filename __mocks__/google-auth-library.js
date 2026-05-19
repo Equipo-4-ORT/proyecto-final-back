@@ -4,7 +4,7 @@ class OAuth2Client {
   }
 
   async verifyIdToken({ idToken, audience }) {
-    if (idToken === 'valid_token' || !idToken) {
+    if (idToken === 'invalid_token' || !idToken) {
       throw new Error('Invalid token');
     }
     return {
