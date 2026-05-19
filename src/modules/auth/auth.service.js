@@ -5,6 +5,8 @@ const logger = require('../../shared/utils/logger');
 const { verifyGoogleToken } = require('../google/google.service');
 const { upsertGoogleUser } = require('../users/users.service');
 const { encrypt } = require('../../shared/utils/crypto');
+const prisma = require('../../shared/database/prisma');
+const { callbackify } = require('util');
 
 if (!process.env.ADMIN_SECRET_KEY) {
   throw new Error('ADMIN_SECRET_KEY environment variable is required');
@@ -50,6 +52,14 @@ class InsufficientScopesError extends Error {
   }
 }
 
+class UserNotActiveError extends Error {
+  constructor(email) {
+    super(`Tu cuenta (${email}) no está activa. Por favor, contacta al administrador.`);
+    this.name = 'UserNotActiveError';
+    this.email = email;
+  }
+}
+
 const getGoogleAuthUrl = () => {
   const state = randomBytes(16).toString('hex');
   pendingStates.add(state);
@@ -84,6 +94,15 @@ const handleGoogleCallback = async (code, state) => {
   }
 
   const googleData = await verifyGoogleToken(tokens.id_token);
+
+  const extistingUser = await prisma.user.findUnique({ 
+    where: { email: googleData.email },
+    select: { status: true } 
+  });
+  if (!extistingUser || extistingUser.status !== 'ACTIVE') {
+    logger.warn(`Intento de login denegado: el email ${googleData.email} no corresponde a un usuario activo`)
+    throw new UserNotActiveError(googleData.email);
+  }
   const encryptedRefreshToken = tokens.refresh_token ? encrypt(tokens.refresh_token) : null;
   const user = await upsertGoogleUser(googleData, encryptedRefreshToken);
   return generateJWT(user);
@@ -108,6 +127,7 @@ module.exports = {
   asignarRol,
   InvalidAdminKeyError,
   InsufficientScopesError,
+  UserNotActiveError,
   ADMIN_KEY_HEADER,
   getGoogleAuthUrl,
   handleGoogleCallback,
