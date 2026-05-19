@@ -1,24 +1,25 @@
 jest.mock('../../../src/modules/auth/auth.service', () => {
     class InsufficientScopesError extends Error {
-        constructor() {
-            super('Insufficient scopes');
-            this.name = 'InsufficientScopesError';
-        }
+        constructor() { super('Insufficient scopes'); this.name = 'InsufficientScopesError'; }
+    }
+    // Agregamos la simulación del nuevo error
+    class UserNotActiveError extends Error {
+        constructor(email) { super('Not active'); this.name = 'UserNotActiveError'; this.email = email;}
     }
     return {
         getGoogleAuthUrl: jest.fn().mockReturnValue('https://mock-google-url.com'),
         handleGoogleCallback: jest.fn(),
         InsufficientScopesError,
+        UserNotActiveError, // Exportamos el error
     };
 });
-
 jest.mock('../../../src/shared/utils/logger', () => ({
     warn: jest.fn(),
     error: jest.fn(),
 }));
 
 const { redirectToGoogle, googleCallback } = require('../../../src/modules/auth/auth.controller');
-const { getGoogleAuthUrl, handleGoogleCallback, InsufficientScopesError } = require('../../../src/modules/auth/auth.service');
+const { getGoogleAuthUrl, handleGoogleCallback, InsufficientScopesError, UserNotActiveError } = require('../../../src/modules/auth/auth.service');
 const logger = require('../../../src/shared/utils/logger');
 
 describe('Auth Controller', () => {
