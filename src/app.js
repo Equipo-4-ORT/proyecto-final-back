@@ -21,6 +21,9 @@ app.use('/auth', authRoutes);
 const adminRoutes = require('./modules/admin/admin.routes');
 app.use('/api/admin', adminRoutes);
 
+const activitiesRoutes = require('./modules/activities/activities.routes');
+app.use('/api/activities', activitiesRoutes);
+
 app.get('/health', (req, res) => {
   res.status(200).json({
     status: 'OK',
