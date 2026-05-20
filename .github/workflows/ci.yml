@@ -29,9 +29,9 @@ jobs:
         run: npm test
         env:
           # Inyectamos variables dummy solo para que pasen las validaciones
-          ENCRYPTION_KEY: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
-          JWT_SECRET: 'test-jwt-secret'
-          ADMIN_SECRET_KEY: 'test-admin-key'
+          ENCRYPTION_KEY: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef' # gitleaks:allow
+          JWT_SECRET: 'test-jwt-secret' # gitleaks:allow
+          ADMIN_SECRET_KEY: 'test-admin-key' # gitleaks:allow
 
   coverage:
     name: Coverage Check (80%)
@@ -57,6 +57,6 @@ jobs:
         run: npm run test:coverage
         env:
           # También inyectamos las variables para el reporte de coverage
-          ENCRYPTION_KEY: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
-          JWT_SECRET: 'test-jwt-secret'
-          ADMIN_SECRET_KEY: 'test-admin-key'
+          ENCRYPTION_KEY: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef' # gitleaks:allow
+          JWT_SECRET: 'test-jwt-secret' # gitleaks:allow
+          ADMIN_SECRET_KEY: 'test-admin-key' # gitleaks:allow
