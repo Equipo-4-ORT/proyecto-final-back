@@ -18,6 +18,9 @@ app.use('/api', apiLimiter);
 const authRoutes = require('./modules/auth/auth.routes');
 app.use('/auth', authRoutes);
 
+const adminRoutes = require('./modules/admin/admin.routes');
+app.use('/api/admin', adminRoutes);
+
 app.get('/health', (req, res) => {
   res.status(200).json({
     status: 'OK',

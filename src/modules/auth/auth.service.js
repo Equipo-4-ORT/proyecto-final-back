@@ -3,7 +3,7 @@ const { randomBytes } = require('crypto');
 const { OAuth2Client } = require('google-auth-library');
 const logger = require('../../shared/utils/logger');
 const { verifyGoogleToken } = require('../google/google.service');
-const { upsertGoogleUser } = require('../users/users.service');
+const { loginGoogleUser, UnauthorizedUserError } = require('../users/users.service');
 const { encrypt } = require('../../shared/utils/crypto');
 
 if (!process.env.ADMIN_SECRET_KEY) {
@@ -85,7 +85,7 @@ const handleGoogleCallback = async (code, state) => {
 
   const googleData = await verifyGoogleToken(tokens.id_token);
   const encryptedRefreshToken = tokens.refresh_token ? encrypt(tokens.refresh_token) : null;
-  const user = await upsertGoogleUser(googleData, encryptedRefreshToken);
+  const user = await loginGoogleUser(googleData, encryptedRefreshToken);
   return generateJWT(user);
 };
 

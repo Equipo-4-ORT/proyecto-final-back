@@ -22,6 +22,11 @@ enum Role {
   ADMIN
 }
 
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+}
+
 enum ReportStatus {
   PENDING
   EDITED
@@ -36,6 +41,7 @@ model User {
   role          Role     @default(EMPLOYEE)
   googleId      String?  @unique @map("google_id")
   refreshToken  String?  @map("refresh_token") // Lo guardaremos encriptado luego
+  status        UserStatus @default(ACTIVE) @map("status")
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @default(now()) @updatedAt @map("updated_at")
 
