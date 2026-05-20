@@ -27,6 +27,11 @@ jobs:
 
       - name: Run tests
         run: npm test
+        env:
+          # Inyectamos variables dummy solo para que pasen las validaciones
+          ENCRYPTION_KEY: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
+          JWT_SECRET: 'test-jwt-secret'
+          ADMIN_SECRET_KEY: 'test-admin-key'
 
   coverage:
     name: Coverage Check (80%)
@@ -50,3 +55,8 @@ jobs:
 
       - name: Check coverage
         run: npm run test:coverage
+        env:
+          # También inyectamos las variables para el reporte de coverage
+          ENCRYPTION_KEY: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
+          JWT_SECRET: 'test-jwt-secret'
+          ADMIN_SECRET_KEY: 'test-admin-key'
