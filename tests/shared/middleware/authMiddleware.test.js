@@ -41,6 +41,16 @@ describe('Middleware: authMiddleware', () => {
     expect(next).not.toHaveBeenCalled();
   });
 
+  test('1b. Debería retornar 401 si el header Authorization no tiene prefijo Bearer', () => {
+    req.headers.authorization = 'Basic dXNlcjpwYXNz';
+
+    authMiddleware(req, res, next);
+
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ error: 'No autorizado' }));
+    expect(next).not.toHaveBeenCalled();
+  });
+
   test('2. Debería inyectar req.user y llamar a next() con un JWT válido', () => {
     // Arrange
     req.headers.authorization = 'Bearer token-super-valido';

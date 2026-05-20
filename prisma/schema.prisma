@@ -40,25 +40,48 @@ model User {
   role          Role     @default(EMPLOYEE)
   googleId      String?  @unique @map("google_id")
   refreshToken  String?  @map("refresh_token") // Lo guardaremos encriptado luego
+  // —— Jira (integración F2B) ——
+  jiraRefreshToken      String?   @map("jira_refresh_token")        // cifrado AES-256-GCM
+  jiraCloudId           String?   @map("jira_cloud_id")
+  jiraSiteUrl           String?   @map("jira_site_url")
+  jiraConnectedAt       DateTime? @map("jira_connected_at")
+  jiraLastSyncAt        DateTime? @map("jira_last_sync_at")
+  jiraReconnectRequired Boolean   @default(false) @map("jira_reconnect_required")
+  // ————————————————————————————
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @default(now()) @updatedAt @map("updated_at")
   status        UserStatus @default(ACTIVE)
   apiKey        String?   @map("api_key")  //Guardo la apikey como string? porque la llave la tiene solo el ADMIN
 
   // Relaciones
-  activities    DailyActivity[]
-  reports       Report[]
+  activities      DailyActivity[]
+  reports         Report[]
+  jiraOAuthStates JiraOAuthState[]
 
   @@map("users") // Buenas prácticas: la tabla en SQL se llamará "users" en minúscula
+}
+
+// Estado del flujo OAuth 3LO de Jira (vive minutos; se borra al consumir el callback)
+model JiraOAuthState {
+  state     String   @id // crypto.randomBytes(32).toString('hex')
+  userId    String   @map("user_id")
+  expiresAt DateTime @map("expires_at") // now() + 10 min
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("jira_oauth_states")
 }
 
 model DailyActivity {
   id           String   @id @default(uuid())
   userId       String   @map("user_id")
   // TODO: Migrar a enum cuando se integre Google APIs y Jira (ver valores reales devueltos por las APIs)
-  source       String   // Ej: 'calendar', 'drive'
+  source       String   // Ej: 'calendar', 'drive', 'jira'
   // TODO: Migrar a enum cuando se integre Google APIs y Jira (ver valores reales devueltos por las APIs)
   activityType String   @map("activity_type") // Ej: 'meeting', 'edit'
+  externalId   String?  @map("external_id") // Clave externa para idempotencia (Jira la setea siempre)
   startTime    DateTime @map("start_time")
   endTime      DateTime @map("end_time")
   metadata     Json?    // Para guardar datos dinámicos de Google
@@ -69,6 +92,8 @@ model DailyActivity {
 
   // Índices para optimizar queries frecuentes
   @@index([userId, startTime])
+  @@index([userId, source, startTime])
+  @@unique([userId, source, externalId])
   @@map("daily_activities")
 }
 
