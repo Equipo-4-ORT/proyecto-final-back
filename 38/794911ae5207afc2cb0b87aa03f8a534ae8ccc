@@ -1,0 +1,19 @@
+tests/modules/jira/jira.controller.test.js
+  s_91cf38f630989f::t_899c1c723fa32b 64,70,73,78,81,86
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.11",
+  "base_commit_sha": "38794911ae5207afc2cb0b87aa03f8a534ae8ccc",
+  "prompts": {},
+  "sessions": {
+    "s_91cf38f630989f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93ce4040-5a8c-4454-9aa6-b568337e080b",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "LicFuraca <martinexequield@gmail.com>"
+    }
+  }
+}
