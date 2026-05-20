@@ -27,7 +27,7 @@ describe('Auth Controller', () => {
 
     beforeEach(() => {
         jest.clearAllMocks();
-        process.env.FRONTEND_URL = 'http://localhost:5173';
+        process.env.FRONTEND_BASE_URL = 'http://localhost:5173';
         req = { query: {} };
         res = { redirect: jest.fn() };
     });
