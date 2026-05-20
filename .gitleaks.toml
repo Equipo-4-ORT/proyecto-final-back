@@ -7,4 +7,5 @@ useDefault = true   # usa todas las reglas built-in de gitleaks
 description = "Ignorar placeholders en .env.example"
 paths = [
     '''\.env\.example$'''
+    '''\.github/workflows/ci\.yml'''
 ]
