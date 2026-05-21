@@ -9,6 +9,11 @@ jest.mock('jsonwebtoken');
 jest.mock('../../../src/shared/utils/logger', () => ({
   error: jest.fn(),
 }));
+// requireValidGoogleToken (re-exportado por index.js) depende de prisma.
+// Lo mockeamos para que el suite no requiera `prisma generate`.
+jest.mock('../../../src/shared/database/prisma', () => ({
+  user: { findUnique: jest.fn() },
+}));
 
 describe('Middleware: authMiddleware', () => {
   let req, res, next;
