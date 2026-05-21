@@ -5,23 +5,16 @@ const {
   UserAlreadyExistsError,
   UserNotFoundError,
 } = require('./admin.service');
+const { asignarRol } = require('../auth/auth.service');
 const logger = require('../../shared/utils/logger');
 
-const VALID_ROLES = ['EMPLOYEE', 'ADMIN'];
-
 const postUser = async (req, res) => {
-  const { fullName, email, role } = req.body;
+  const { fullName, email } = req.body;
 
-  if (!fullName || !email || !role) {
+  if (!fullName || !email) {
     return res
       .status(400)
-      .json({ error: 'Bad Request', message: 'fullName, email y role son requeridos' });
-  }
-
-  if (!VALID_ROLES.includes(role)) {
-    return res
-      .status(400)
-      .json({ error: 'Bad Request', message: `role debe ser uno de: ${VALID_ROLES.join(', ')}` });
+      .json({ error: 'Bad Request', message: 'fullName y email son requeridos' });
   }
 
   const emailRegex = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;
@@ -32,6 +25,8 @@ const postUser = async (req, res) => {
   }
 
   try {
+    // El role lo determina la app, no el cliente: sin llave de admin => EMPLOYEE.
+    const role = asignarRol();
     const user = await createUser({ fullName, email, role });
     return res.status(201).json(user);
   } catch (error) {
