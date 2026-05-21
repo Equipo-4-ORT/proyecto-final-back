@@ -22,10 +22,14 @@ enum Role {
   ADMIN
 }
 
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+}
+
 enum ReportStatus {
   PENDING
-  EDITED
-  APPROVED
+  SENT
 }
 
 // los modelos
@@ -46,6 +50,8 @@ model User {
   // ————————————————————————————
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @default(now()) @updatedAt @map("updated_at")
+  status        UserStatus @default(ACTIVE)
+  apiKey        String?   @map("api_key")  //Guardo la apikey como string? porque la llave la tiene solo el ADMIN
 
   // Relaciones
   activities      DailyActivity[]
@@ -87,6 +93,8 @@ model DailyActivity {
   // Índices para optimizar queries frecuentes
   @@index([userId, startTime])
   @@index([userId, source, startTime])
+  // TODO: este unique no previene duplicados cuando externalId es NULL (Calendar y Drive no lo setean).
+  //       Agregar deduplicación en el service de Calendar/Drive antes de persistir, o forzar externalId NOT NULL para todas las fuentes.
   @@unique([userId, source, externalId])
   @@map("daily_activities")
 }
@@ -95,8 +103,8 @@ model Report {
   id           String   @id @default(uuid())
   userId       String   @map("user_id")
   reportDate   DateTime @db.Date @map("report_date")
-  aiSummary    String?  @map("ai_summary")
-  finalContent String?  @map("final_content")
+  xlsxUrl      String?  @db.VarChar(255) @map("xlsx_url")
+  sentAt       DateTime? @map("sent_at")
   status       ReportStatus @default(PENDING)
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @default(now()) @updatedAt @map("updated_at")
