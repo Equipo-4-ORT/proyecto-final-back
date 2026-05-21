@@ -10,9 +10,10 @@ const logger = require('../../shared/utils/logger');
 
 const handleKnownErrors = (res, error) => {
   if (error instanceof ActivityNotFoundError || error instanceof ActivityForbiddenError) {
-    return res.status(error.statusCode).json({ error: error.name, message: error.message });
+    res.status(error.statusCode).json({ error: error.name, message: error.message });
+    return true;
   }
-  return null;
+  return false;
 };
 
 const getActivities = async (req, res) => {

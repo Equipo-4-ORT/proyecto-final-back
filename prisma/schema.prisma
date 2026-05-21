@@ -40,7 +40,7 @@ model User {
   role          Role     @default(EMPLOYEE)
   googleId      String?  @unique @map("google_id")
   refreshToken  String?  @map("refresh_token") // Lo guardaremos encriptado luego
-  status        UserStatus @default(ACTIVE) @map("status")
+  status        UserStatus @default(ACTIVE)
   // —— Jira (integración F2B) ——
   jiraRefreshToken      String?   @map("jira_refresh_token")        // cifrado AES-256-GCM
   jiraCloudId           String?   @map("jira_cloud_id")
@@ -51,7 +51,6 @@ model User {
   // ————————————————————————————
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @default(now()) @updatedAt @map("updated_at")
-  status        UserStatus @default(ACTIVE)
   apiKey        String?   @map("api_key")  //Guardo la apikey como string? porque la llave la tiene solo el ADMIN
 
   // Relaciones

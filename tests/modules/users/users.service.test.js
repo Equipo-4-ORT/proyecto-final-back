@@ -109,4 +109,11 @@ describe('Servicio de Usuarios (loginGoogleUser)', () => {
             loginGoogleUser({ email: 'a@a.com', fullName: 'Juan' }, null)
         ).rejects.toThrow('email y googleId son requeridos');
     });
+
+    test('Lanza error controlado si la BD falla al actualizar', async () => {
+        prisma.user.findUnique.mockResolvedValue(ACTIVE_USER);
+        prisma.user.update.mockRejectedValue(new Error('Conexión perdida'));
+
+        await expect(loginGoogleUser(BASE_GOOGLE_DATA, null)).rejects.toThrow('No se pudo actualizar el usuario');
+    });
 });

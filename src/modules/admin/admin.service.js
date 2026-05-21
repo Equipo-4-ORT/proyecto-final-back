@@ -9,6 +9,14 @@ class UserAlreadyExistsError extends Error {
   }
 }
 
+class UserNotFoundError extends Error {
+  constructor(id) {
+    super(`Usuario ${id} no encontrado`);
+    this.name = 'UserNotFoundError';
+    this.statusCode = 404;
+  }
+}
+
 const createUser = async ({ fullName, email, role }) => {
   const normalizedEmail = email.toLowerCase().trim();
 
@@ -37,14 +45,6 @@ const listUsers = async () => {
     orderBy: { createdAt: 'desc' },
   });
 };
-
-class UserNotFoundError extends Error {
-  constructor(id) {
-    super(`Usuario ${id} no encontrado`);
-    this.name = 'UserNotFoundError';
-    this.statusCode = 404;
-  }
-}
 
 const toggleUserStatus = async (id) => {
   const user = await prisma.user.findUnique({ where: { id } });

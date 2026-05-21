@@ -42,15 +42,20 @@ const updateActivity = async (userId, id, { activityType, startTime, endTime, me
   if (!activity) throw new ActivityNotFoundError();
   if (activity.userId !== userId) throw new ActivityForbiddenError();
 
-  return prisma.dailyActivity.update({
-    where: { id },
-    data: {
-      ...(activityType && { activityType }),
-      ...(startTime && { startTime: new Date(startTime) }),
-      ...(endTime && { endTime: new Date(endTime) }),
-      ...(metadata !== undefined && { metadata }),
-    },
-  });
+  try {
+    return await prisma.dailyActivity.update({
+      where: { id },
+      data: {
+        ...(activityType && { activityType }),
+        ...(startTime && { startTime: new Date(startTime) }),
+        ...(endTime && { endTime: new Date(endTime) }),
+        ...(metadata !== undefined && { metadata }),
+      },
+    });
+  } catch (error) {
+    if (error.code === 'P2025') throw new ActivityNotFoundError();
+    throw error;
+  }
 };
 
 const deleteActivity = async (userId, id) => {
@@ -59,7 +64,12 @@ const deleteActivity = async (userId, id) => {
   if (!activity) throw new ActivityNotFoundError();
   if (activity.userId !== userId) throw new ActivityForbiddenError();
 
-  await prisma.dailyActivity.delete({ where: { id } });
+  try {
+    await prisma.dailyActivity.delete({ where: { id } });
+  } catch (error) {
+    if (error.code === 'P2025') throw new ActivityNotFoundError();
+    throw error;
+  }
 };
 
 module.exports = {
