@@ -80,9 +80,9 @@ describe('Timeline Service', () => {
 
     test('Caso 5: Todo el día en reuniones de Meet', () => {
       const activities = [
-        { source: 'calendar', title: 'Daily Meet', metadata_json: { link: 'meet.google.com/123' } },
-        { source: 'calendar', title: 'Planning', metadata_json: { link: 'meet.google.com/456' } },
-        { source: 'calendar', title: 'Retro de Sprint', metadata_json: { link: 'meet.google.com/789' } }
+        { source: 'calendar', title: 'Daily Meet', metadata_json: { link: 'https://meet.google.com/123' } },
+        { source: 'calendar', title: 'Planning', metadata_json: { link: 'https://meet.google.com/456' } },
+        { source: 'calendar', title: 'Retro de Sprint', metadata_json: { link: 'https://meet.google.com/789' } }
       ];
       
       const result = groupByApp(activities);

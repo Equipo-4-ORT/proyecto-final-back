@@ -22,7 +22,7 @@ const isSafeDomain = (urlString, targetDomain) => {
     try {
         const url = new URL(urlString);
         return url.hostname === targetDomain || url.hostname.endsWith(`.${targetDomain}`);
-    } catch (e) {
+    } catch  {
         return false;
     }
 
@@ -73,5 +73,5 @@ const groupByApp = (activities = []) => {
 
 module.exports = {
     mergeTimeline,
-    groupByApp
+    groupByApp,
 }
