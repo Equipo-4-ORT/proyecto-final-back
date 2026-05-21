@@ -22,6 +22,12 @@ app.use('/users', userRoutes);
 const jiraRoutes = require('./modules/jira/jira.routes');
 app.use('/api/jira', jiraRoutes);
 
+const adminRoutes = require('./modules/admin/admin.routes');
+app.use('/api/admin', adminRoutes);
+
+const activitiesRoutes = require('./modules/activities/activities.routes');
+app.use('/api/activities', activitiesRoutes);
+
 app.get('/health', (req, res) => {
   res.status(200).json({
     status: 'OK',
