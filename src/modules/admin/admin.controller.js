@@ -1,4 +1,10 @@
-const { createUser, listUsers, toggleUserStatus, UserAlreadyExistsError, UserNotFoundError } = require('./admin.service');
+const {
+  createUser,
+  listUsers,
+  toggleUserStatus,
+  UserAlreadyExistsError,
+  UserNotFoundError,
+} = require('./admin.service');
 const logger = require('../../shared/utils/logger');
 
 const VALID_ROLES = ['EMPLOYEE', 'ADMIN'];
@@ -7,16 +13,22 @@ const postUser = async (req, res) => {
   const { fullName, email, role } = req.body;
 
   if (!fullName || !email || !role) {
-    return res.status(400).json({ error: 'Bad Request', message: 'fullName, email y role son requeridos' });
+    return res
+      .status(400)
+      .json({ error: 'Bad Request', message: 'fullName, email y role son requeridos' });
   }
 
   if (!VALID_ROLES.includes(role)) {
-    return res.status(400).json({ error: 'Bad Request', message: `role debe ser uno de: ${VALID_ROLES.join(', ')}` });
+    return res
+      .status(400)
+      .json({ error: 'Bad Request', message: `role debe ser uno de: ${VALID_ROLES.join(', ')}` });
   }
 
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const emailRegex = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;
   if (!emailRegex.test(email)) {
-    return res.status(400).json({ error: 'Bad Request', message: 'El email no tiene un formato válido' });
+    return res
+      .status(400)
+      .json({ error: 'Bad Request', message: 'El email no tiene un formato válido' });
   }
 
   try {
@@ -27,7 +39,9 @@ const postUser = async (req, res) => {
       return res.status(error.statusCode).json({ error: error.name, message: error.message });
     }
     logger.error('Error al crear usuario desde admin', { error });
-    return res.status(500).json({ error: 'Internal Server Error', message: 'No se pudo crear el usuario' });
+    return res
+      .status(500)
+      .json({ error: 'Internal Server Error', message: 'No se pudo crear el usuario' });
   }
 };
 
@@ -37,7 +51,9 @@ const getUsers = async (req, res) => {
     return res.status(200).json(users);
   } catch (error) {
     logger.error('Error al listar usuarios', { error });
-    return res.status(500).json({ error: 'Internal Server Error', message: 'No se pudieron obtener los usuarios' });
+    return res
+      .status(500)
+      .json({ error: 'Internal Server Error', message: 'No se pudieron obtener los usuarios' });
   }
 };
 
@@ -50,7 +66,9 @@ const patchUserStatus = async (req, res) => {
       return res.status(error.statusCode).json({ error: error.name, message: error.message });
     }
     logger.error('Error al cambiar estado de usuario', { error });
-    return res.status(500).json({ error: 'Internal Server Error', message: 'No se pudo actualizar el usuario' });
+    return res
+      .status(500)
+      .json({ error: 'Internal Server Error', message: 'No se pudo actualizar el usuario' });
   }
 };
 
