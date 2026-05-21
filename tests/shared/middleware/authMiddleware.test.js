@@ -14,6 +14,10 @@ jest.mock('../../../src/shared/utils/logger', () => ({
 jest.mock('../../../src/shared/database/prisma', () => ({
   user: { findUnique: jest.fn() },
 }));
+jest.mock('../../../src/shared/utils/crypto', () => ({
+  encrypt: jest.fn(),
+  decrypt: jest.fn(),
+}));
 
 describe('Middleware: authMiddleware', () => {
   let req, res, next;
