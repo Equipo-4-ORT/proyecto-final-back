@@ -1,0 +1,19 @@
+tests/shared/middleware/authMiddleware.test.js
+  s_32a6d12dd9c134::t_01fbbea7811ef0 17-20
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.11",
+  "base_commit_sha": "7720d739efd4bf2aba7d68b1debae8593079a600",
+  "prompts": {},
+  "sessions": {
+    "s_32a6d12dd9c134": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c3b5b28f-d5f8-4c34-a773-aa78628a3101",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "LicFuraca <martinexequield@gmail.com>"
+    }
+  }
+}
