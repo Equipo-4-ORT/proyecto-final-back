@@ -1,0 +1,14 @@
+prisma/schema.prisma
+  h_8af40fd7a5881e 32,44-51,54-55,60,65-77,82,85,96-99,107-108
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.11",
+  "base_commit_sha": "85ba9b7c378692034ba9a46c1b7d916676177938",
+  "prompts": {},
+  "humans": {
+    "h_8af40fd7a5881e": {
+      "author": "LicFuraca <martinexequield@gmail.com>"
+    }
+  }
+}
