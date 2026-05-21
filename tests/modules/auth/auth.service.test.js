@@ -8,6 +8,13 @@ jest.mock('jsonwebtoken');
 jest.mock('../../../src/modules/google/google.service', () => ({
     verifyGoogleToken: jest.fn(),
 }));
+jest.mock('../../../src/shared/database/prisma', () => ({
+    user: {
+        findUnique: jest.fn(),
+        findFirst: jest.fn(),
+        create: jest.fn()
+    }
+}));
 jest.mock('../../../src/modules/users/users.service', () => ({
     loginGoogleUser: jest.fn(),
     UnauthorizedUserError: class UnauthorizedUserError extends Error {},
@@ -32,11 +39,13 @@ const { OAuth2Client } = require('google-auth-library');
 const { verifyGoogleToken } = require('../../../src/modules/google/google.service');
 const { loginGoogleUser } = require('../../../src/modules/users/users.service');
 const { encrypt } = require('../../../src/shared/utils/crypto');
+const prisma = require('../../../src/shared/database/prisma');
 
 const {
     asignarRol,
     InvalidAdminKeyError,
     InsufficientScopesError,
+    UserNotActiveError,
     getGoogleAuthUrl,
     handleGoogleCallback,
     generateJWT,
@@ -157,6 +166,7 @@ describe('Auth Service', () => {
         });
 
         test('Flujo exitoso: verifica token, encripta refresh, crea usuario y devuelve JWT', async () => {
+            prisma.user.findUnique.mockResolvedValue({ status: 'ACTIVE' });
             mockClient.generateAuthUrl.mockReturnValue('https://accounts.google.com/mock');
             getGoogleAuthUrl();
             const { state } = mockClient.generateAuthUrl.mock.calls[0][0];
@@ -182,6 +192,7 @@ describe('Auth Service', () => {
         });
 
         test('Guarda null como refreshToken si Google no devuelve uno', async () => {
+            prisma.user.findUnique.mockResolvedValue({ status: 'ACTIVE' });
             mockClient.generateAuthUrl.mockReturnValue('https://accounts.google.com/mock');
             getGoogleAuthUrl();
             const { state } = mockClient.generateAuthUrl.mock.calls[0][0];
@@ -200,6 +211,7 @@ describe('Auth Service', () => {
         });
 
         test('El state queda consumido y no puede usarse dos veces', async () => {
+            prisma.user.findUnique.mockResolvedValue({ status: 'ACTIVE' });
             mockClient.generateAuthUrl.mockReturnValue('https://accounts.google.com/mock');
             getGoogleAuthUrl();
             const { state } = mockClient.generateAuthUrl.mock.calls[0][0];

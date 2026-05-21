@@ -9,6 +9,15 @@ jest.mock('jsonwebtoken');
 jest.mock('../../../src/shared/utils/logger', () => ({
   error: jest.fn(),
 }));
+// requireValidGoogleToken (re-exportado por index.js) depende de prisma.
+// Lo mockeamos para que el suite no requiera `prisma generate`.
+jest.mock('../../../src/shared/database/prisma', () => ({
+  user: { findUnique: jest.fn() },
+}));
+jest.mock('../../../src/shared/utils/crypto', () => ({
+  encrypt: jest.fn(),
+  decrypt: jest.fn(),
+}));
 
 describe('Middleware: authMiddleware', () => {
   let req, res, next;
@@ -36,6 +45,16 @@ describe('Middleware: authMiddleware', () => {
     authMiddleware(req, res, next);
 
     // Assert
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ error: 'No autorizado' }));
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  test('1b. Debería retornar 401 si el header Authorization no tiene prefijo Bearer', () => {
+    req.headers.authorization = 'Basic dXNlcjpwYXNz';
+
+    authMiddleware(req, res, next);
+
     expect(res.status).toHaveBeenCalledWith(401);
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ error: 'No autorizado' }));
     expect(next).not.toHaveBeenCalled();

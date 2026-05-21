@@ -16,7 +16,11 @@ app.use('/auth', authLimiter);
 app.use('/api', apiLimiter);
 
 const authRoutes = require('./modules/auth/auth.routes');
+const userRoutes = require('./modules/users/users.routes');
 app.use('/auth', authRoutes);
+app.use('/users', userRoutes);
+const jiraRoutes = require('./modules/jira/jira.routes');
+app.use('/api/jira', jiraRoutes);
 
 const adminRoutes = require('./modules/admin/admin.routes');
 app.use('/api/admin', adminRoutes);
@@ -27,9 +31,7 @@ app.use('/api/activities', activitiesRoutes);
 app.get('/health', (req, res) => {
   res.status(200).json({
     status: 'OK',
-    uptime: Math.floor(process.uptime()),
     timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV || 'development',
   });
 });
 
