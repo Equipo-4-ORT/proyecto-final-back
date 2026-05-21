@@ -93,6 +93,8 @@ model DailyActivity {
   // Índices para optimizar queries frecuentes
   @@index([userId, startTime])
   @@index([userId, source, startTime])
+  // TODO: este unique no previene duplicados cuando externalId es NULL (Calendar y Drive no lo setean).
+  //       Agregar deduplicación en el service de Calendar/Drive antes de persistir, o forzar externalId NOT NULL para todas las fuentes.
   @@unique([userId, source, externalId])
   @@map("daily_activities")
 }

@@ -35,7 +35,7 @@ const googleCallback = async (req, res) => {
     }
     if (error instanceof UserNotActiveError) {
       logger.warn('Intento de login denegado: el usuario no está activo');
-      return res.redirect(`${process.env.FRONTEND_URL}/login?error=user_not_active`);
+      return res.redirect(`${process.env.FRONTEND_BASE_URL}/login?error=user_not_active`);
     }
     logger.error('Error en Google OAuth callback', { error: error.message });
     res.redirect(`${process.env.FRONTEND_BASE_URL}/login?error=auth_failed`);
@@ -45,18 +45,18 @@ const googleCallback = async (req, res) => {
 const createBootstrapAdmin = async (req, res) => {
   try {
     const adminKey = req.header('X-Admin-Key');
-    const {email, fullName} = req.body;
-      if (!email){
-        return res.status(400).json({ error: 'El campo email es requerido' });
-      }
-      const newAdmin = await bootstrapAdmin(email, fullName, adminKey);
-      return res.status(201).json({
+    const { email, fullName } = req.body;
+    if (!email) {
+      return res.status(400).json({ error: 'El campo email es requerido' });
+    }
+    const newAdmin = await bootstrapAdmin(email, fullName, adminKey);
+    return res.status(201).json({
       message: 'Administrador maestro creado con éxito',
       admin: {
         id: newAdmin.id,
         email: newAdmin.email,
-        role: newAdmin.role
-      }
+        role: newAdmin.role,
+      },
     });
   } catch (error) {
     if (error instanceof InvalidAdminKeyError) {

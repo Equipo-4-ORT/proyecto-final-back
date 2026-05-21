@@ -6,7 +6,6 @@ const { verifyGoogleToken } = require('../google/google.service');
 const { upsertGoogleUser } = require('../users/users.service');
 const { encrypt } = require('../../shared/utils/crypto');
 const prisma = require('../../shared/database/prisma');
-const { callbackify } = require('util');
 
 if (!process.env.ADMIN_SECRET_KEY) {
   throw new Error('ADMIN_SECRET_KEY environment variable is required');
@@ -102,11 +101,11 @@ const handleGoogleCallback = async (code, state) => {
 
   const googleData = await verifyGoogleToken(tokens.id_token);
 
-  const extistingUser = await prisma.user.findUnique({ 
+  const existingUser = await prisma.user.findUnique({
     where: { email: googleData.email },
-    select: { status: true } 
+    select: { status: true },
   });
-  if (!extistingUser || extistingUser.status !== 'ACTIVE') {
+  if (!existingUser || existingUser.status !== 'ACTIVE') {
     logger.warn(`Intento de login denegado: el email ${googleData.email} no corresponde a un usuario activo`)
     throw new UserNotActiveError(googleData.email);
   }
@@ -150,7 +149,7 @@ const bootstrapAdmin = async (email, fullName, providedKey) => {
       status: 'ACTIVE',
     }
   });
-return newAdmin;
+  return newAdmin;
 }
 
 
