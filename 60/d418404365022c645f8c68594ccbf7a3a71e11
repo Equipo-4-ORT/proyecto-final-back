@@ -1,0 +1,27 @@
+src/modules/auth/auth.service.js
+  s_32a6d12dd9c134::t_722ca5583056a5 104,106,108
+  s_32a6d12dd9c134::t_c4345d533d0820 152
+src/shared/middleware/requireValidGoogleToken.js
+  s_32a6d12dd9c134::t_2c1baff48bb8f4 1,3,6-10,14,18-19,31,33,38-39,49
+src/modules/auth/auth.controller.js
+  s_32a6d12dd9c134::t_a746d4dc938a52 38
+  s_32a6d12dd9c134::t_abd0811d113b03 48-53,58-59
+prisma/schema.prisma
+  s_32a6d12dd9c134::t_d49dc37b28cb6b 96-97
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.11",
+  "base_commit_sha": "60d418404365022c645f8c68594ccbf7a3a71e11",
+  "prompts": {},
+  "sessions": {
+    "s_32a6d12dd9c134": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c3b5b28f-d5f8-4c34-a773-aa78628a3101",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "LicFuraca <martinexequield@gmail.com>"
+    }
+  }
+}
