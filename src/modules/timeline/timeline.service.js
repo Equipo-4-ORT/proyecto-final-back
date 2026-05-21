@@ -16,6 +16,21 @@ const mergeTimeline = (calendarActivities = [], driveActivities = []) => {
     return allActivities.sort((a, b) => new Date(a.startTime) - new Date(b.startTime));
 }
 
+
+const isSafeDomain = (urlString, targetDomain) => {
+    if (!urlString) return false;
+    try {
+        const url = new URL(urlString);
+        return url.hostname === targetDomain || url.hostname.endsWith(`.${targetDomain}`);
+    } catch (e) {
+        return false;
+    }
+
+
+
+};
+
+
 const groupByApp = (activities = []) => {
     const grouped = {
         Meet: [],
@@ -35,7 +50,7 @@ const groupByApp = (activities = []) => {
 
 
     if (source === 'calendar') {
-        if (link.includes('meet.google.com')||title.includes('meet')) {
+        if (isSafeDomain(link, 'meet.google.com') || title.includes('meet')) {
             grouped.Meet.push(activity);
 
         } else {
@@ -43,9 +58,9 @@ const groupByApp = (activities = []) => {
         }
     }
     else if (source === 'drive') {
-        if (mimeType.includes('document') || link.includes('docs.google.com')) {
+        if (mimeType.includes('document') || isSafeDomain(link, 'docs.google.com')) {
             grouped.Docs.push(activity);
-        } else if (mimeType.includes('spreadsheet') || link.includes('sheets.google.com')) {
+        } else if (mimeType.includes('spreadsheet') || isSafeDomain(link, 'sheets.google.com')) {
             grouped.Sheets.push(activity);
         } else {
             grouped.Drive.push(activity);
