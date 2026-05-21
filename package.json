@@ -7,9 +7,9 @@
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
     "lint": "eslint src/",
-    "test": "jest",
-    "test:watch": "jest --watch",
-    "test:coverage": "jest --coverage",
+    "test": "jest --runInBand",
+    "test:watch": "jest --watch --runInBand",
+    "test:coverage": "jest --coverage --runInBand",
     "db:migrate": "prisma migrate dev",
     "db:seed": "prisma db seed",
     "db:studio": "prisma studio",
@@ -34,7 +34,6 @@
     "express-rate-limit": "^7.0.0",
     "google-auth-library": "^10.6.2",
     "jsonwebtoken": "^9.0.3",
-    "openai": "^6.38.0",
     "winston": "^3.19.0"
   },
   "devDependencies": {
@@ -42,10 +41,10 @@
     "eslint": "^10.2.0",
     "globals": "^17.5.0",
     "jest": "^30.3.0",
+    "supertest": "^7.0.0",
     "nodemon": "^3.1.14",
     "prettier": "^3.8.3",
-    "prisma": "^6.19.3",
-    "supertest": "^7.0.0"
+    "prisma": "^6.19.3"
   },
   "engines": {
     "node": "^20.19.0 || ^22.13.0 || >=24"
@@ -54,9 +53,9 @@
     "seed": "node prisma/seed.js"
   },
   "jest": {
-    "testMatch": [
-      "<rootDir>/tests/**/*.test.js"
-    ],
+    "globalSetup": "./tests/globalSetup.js",
+    "setupFiles": ["./tests/setupEnv.js"],
+    "testMatch": ["<rootDir>/tests/**/*.test.js"],
     "collectCoverageFrom": [
       "src/**/*.js",
       "!src/server.js",

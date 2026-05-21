@@ -8,8 +8,16 @@ jest.mock('jsonwebtoken');
 jest.mock('../../../src/modules/google/google.service', () => ({
     verifyGoogleToken: jest.fn(),
 }));
+jest.mock('../../../src/shared/database/prisma', () => ({
+    user: {
+        findUnique: jest.fn(),
+        findFirst: jest.fn(),
+        create: jest.fn()
+    }
+}));
 jest.mock('../../../src/modules/users/users.service', () => ({
-    upsertGoogleUser: jest.fn(),
+    loginGoogleUser: jest.fn(),
+    UnauthorizedUserError: class UnauthorizedUserError extends Error {},
 }));
 jest.mock('../../../src/shared/utils/crypto', () => ({
     encrypt: jest.fn(),
@@ -29,13 +37,15 @@ jest.mock('google-auth-library', () => {
 const jwt = require('jsonwebtoken');
 const { OAuth2Client } = require('google-auth-library');
 const { verifyGoogleToken } = require('../../../src/modules/google/google.service');
-const { upsertGoogleUser } = require('../../../src/modules/users/users.service');
+const { loginGoogleUser } = require('../../../src/modules/users/users.service');
 const { encrypt } = require('../../../src/shared/utils/crypto');
+const prisma = require('../../../src/shared/database/prisma');
 
 const {
     asignarRol,
     InvalidAdminKeyError,
     InsufficientScopesError,
+    UserNotActiveError,
     getGoogleAuthUrl,
     handleGoogleCallback,
     generateJWT,
@@ -156,6 +166,7 @@ describe('Auth Service', () => {
         });
 
         test('Flujo exitoso: verifica token, encripta refresh, crea usuario y devuelve JWT', async () => {
+            prisma.user.findUnique.mockResolvedValue({ status: 'ACTIVE' });
             mockClient.generateAuthUrl.mockReturnValue('https://accounts.google.com/mock');
             getGoogleAuthUrl();
             const { state } = mockClient.generateAuthUrl.mock.calls[0][0];
@@ -166,7 +177,7 @@ describe('Auth Service', () => {
             });
             verifyGoogleToken.mockResolvedValue({ email: 'user@test.com', googleId: '123', fullName: 'User' });
             encrypt.mockReturnValue('encrypted-refresh');
-            upsertGoogleUser.mockResolvedValue(mockUser);
+            loginGoogleUser.mockResolvedValue(mockUser);
             jwt.sign.mockReturnValue('signed-jwt');
 
             const result = await handleGoogleCallback('auth-code', state);
@@ -174,13 +185,14 @@ describe('Auth Service', () => {
             expect(result).toBe('signed-jwt');
             expect(verifyGoogleToken).toHaveBeenCalledWith('id-tok');
             expect(encrypt).toHaveBeenCalledWith('refresh-tok');
-            expect(upsertGoogleUser).toHaveBeenCalledWith(
+            expect(loginGoogleUser).toHaveBeenCalledWith(
                 expect.objectContaining({ email: 'user@test.com' }),
                 'encrypted-refresh'
             );
         });
 
         test('Guarda null como refreshToken si Google no devuelve uno', async () => {
+            prisma.user.findUnique.mockResolvedValue({ status: 'ACTIVE' });
             mockClient.generateAuthUrl.mockReturnValue('https://accounts.google.com/mock');
             getGoogleAuthUrl();
             const { state } = mockClient.generateAuthUrl.mock.calls[0][0];
@@ -189,16 +201,17 @@ describe('Auth Service', () => {
                 tokens: { id_token: 'id-tok', refresh_token: null, scope: FULL_SCOPES },
             });
             verifyGoogleToken.mockResolvedValue({ email: 'user@test.com', googleId: '123', fullName: 'User' });
-            upsertGoogleUser.mockResolvedValue({ id: 'uuid-1', email: 'user@test.com', role: 'EMPLOYEE' });
+            loginGoogleUser.mockResolvedValue({ id: 'uuid-1', email: 'user@test.com', role: 'EMPLOYEE' });
             jwt.sign.mockReturnValue('signed-jwt');
 
             await handleGoogleCallback('auth-code', state);
 
             expect(encrypt).not.toHaveBeenCalled();
-            expect(upsertGoogleUser).toHaveBeenCalledWith(expect.any(Object), null);
+            expect(loginGoogleUser).toHaveBeenCalledWith(expect.any(Object), null);
         });
 
         test('El state queda consumido y no puede usarse dos veces', async () => {
+            prisma.user.findUnique.mockResolvedValue({ status: 'ACTIVE' });
             mockClient.generateAuthUrl.mockReturnValue('https://accounts.google.com/mock');
             getGoogleAuthUrl();
             const { state } = mockClient.generateAuthUrl.mock.calls[0][0];
@@ -207,7 +220,7 @@ describe('Auth Service', () => {
                 tokens: { id_token: 'id-tok', refresh_token: null, scope: FULL_SCOPES },
             });
             verifyGoogleToken.mockResolvedValue({ email: 'u@t.com', googleId: '1', fullName: 'U' });
-            upsertGoogleUser.mockResolvedValue({ id: '1', email: 'u@t.com', role: 'EMPLOYEE' });
+            loginGoogleUser.mockResolvedValue({ id: '1', email: 'u@t.com', role: 'EMPLOYEE' });
             jwt.sign.mockReturnValue('jwt');
 
             await handleGoogleCallback('code', state);

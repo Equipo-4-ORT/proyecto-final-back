@@ -16,9 +16,17 @@ app.use('/auth', authLimiter);
 app.use('/api', apiLimiter);
 
 const authRoutes = require('./modules/auth/auth.routes');
+const userRoutes = require('./modules/users/users.routes');
 app.use('/auth', authRoutes);
+app.use('/users', userRoutes);
 const jiraRoutes = require('./modules/jira/jira.routes');
 app.use('/api/jira', jiraRoutes);
+
+const adminRoutes = require('./modules/admin/admin.routes');
+app.use('/api/admin', adminRoutes);
+
+const activitiesRoutes = require('./modules/activities/activities.routes');
+app.use('/api/activities', activitiesRoutes);
 
 app.get('/health', (req, res) => {
   res.status(200).json({
