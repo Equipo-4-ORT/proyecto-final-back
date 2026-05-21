@@ -1,0 +1,23 @@
+tests/modules/admin/admin.service.test.js
+  s_fac23512583366::t_53404e654df3c6 1-98
+tests/modules/admin/admin.controller.test.js
+  s_fac23512583366::t_82f89ed440d024 1-136
+tests/modules/activities/activities.controller.test.js
+  s_fac23512583366::t_2bab6ecfeb3e0b 1-187
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.11",
+  "base_commit_sha": "4044d0c025bcdb5a14a54c26749d4364db2c0604",
+  "prompts": {},
+  "sessions": {
+    "s_fac23512583366": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8b87d830-4230-4d99-9406-2e1695120e46",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "LicFuraca <martinexequield@gmail.com>"
+    }
+  }
+}
