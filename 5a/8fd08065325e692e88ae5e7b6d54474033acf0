@@ -1,0 +1,19 @@
+tests/modules/activities/activities.service.test.js
+  s_fac23512583366::t_f53441d8026162 1-10,19,27-35,37-38,42-51,56-57,59,61-70,75-76,78-84,87,90-109,113-140,143
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.11",
+  "base_commit_sha": "5a8fd08065325e692e88ae5e7b6d54474033acf0",
+  "prompts": {},
+  "sessions": {
+    "s_fac23512583366": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8b87d830-4230-4d99-9406-2e1695120e46",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "LicFuraca <martinexequield@gmail.com>"
+    }
+  }
+}
