@@ -1,112 +1,140 @@
-const { mergeTimeline, groupByApp } = require("../../../src/modules/timeline/timeline.service");
-
+const { isSafeDomain, groupByApp } = require("../../../src/modules/timeline/timeline.service");
 
 describe('Timeline Service', () => {
-  
-  // ====================================================================
-  // TESTS PARA mergeTimeline (Fusión y Ordenamiento)
-  // ====================================================================
-  describe('mergeTimeline()', () => {
-    
-    test('Caso 1: Día vacío (sin actividades) devuelve un array vacío', () => {
-      const result = mergeTimeline([], []);
-      expect(result).toEqual([]);
-    });
 
-    test('Caso 2: Actividades sin endTime en Drive se normalizan sumando 15 minutos', () => {
-      // Actividad de 1 solo minuto / instante (Drive suele mandar esto)
-      const driveActivities = [
-        { id: 1, source: 'drive', startTime: '2026-05-21T10:00:00.000Z' }
-      ];
-      
-      const result = mergeTimeline([], driveActivities);
-      
-      expect(result).toHaveLength(1);
-      // 10:00 + 15 mins = 10:15
-      expect(result[0].endTime).toBe('2026-05-21T10:15:00.000Z');
-    });
+  // ====================================================================
+  // TESTS PARA isSafeDomain (Validación de dominio)
+  // ====================================================================
+  describe('isSafeDomain()', () => {
 
-    test('Caso 3: Ordena cronológicamente sin importar el origen', () => {
-      const calendarActivities = [
-        { id: 'C1', startTime: '2026-05-21T11:00:00.000Z' }, // Última
-        { id: 'C2', startTime: '2026-05-21T09:00:00.000Z' }  // Primera
-      ];
-      const driveActivities = [
-        { id: 'D1', startTime: '2026-05-21T10:00:00.000Z', endTime: '2026-05-21T10:30:00.000Z' } // Medio
-      ];
-      
-      const result = mergeTimeline(calendarActivities, driveActivities);
-      
-      expect(result[0].id).toBe('C2'); // 09:00
-      expect(result[1].id).toBe('D1'); // 10:00
-      expect(result[2].id).toBe('C1'); // 11:00
+    test.each([
+      ['https://meet.google.com/abc-defg-hij', 'meet.google.com', true],
+      ['https://sub.meet.google.com/foo', 'meet.google.com', true],
+      ['https://docs.google.com/document/d/123', 'docs.google.com', true],
+      ['https://evilmeet.google.com', 'meet.google.com', false],
+      ['https://meet.google.com.attacker.com', 'meet.google.com', false],
+      ['https://attacker.com/?redirect=https://meet.google.com', 'meet.google.com', false],
+      ['javascript:alert(1)', 'meet.google.com', false],
+      ['not a url at all', 'meet.google.com', false],
+      ['', 'meet.google.com', false],
+      [null, 'meet.google.com', false],
+      [undefined, 'meet.google.com', false],
+    ])('isSafeDomain(%p, %p) === %p', (url, domain, expected) => {
+      expect(isSafeDomain(url, domain)).toBe(expected);
     });
   });
 
   // ====================================================================
-  // TESTS PARA groupByApp (Agrupación para el Frontend)
+  // TESTS PARA groupByApp (Agrupación para el Frontend / IA)
   // ====================================================================
   describe('groupByApp()', () => {
-    
-    test('Caso 4: Solapamientos múltiples (Reunión de 2h con edición de Docs al mismo tiempo)', () => {
+
+    test('Caso 1: Solapamientos múltiples (Reunión de 2h con edición de Docs al mismo tiempo)', () => {
       // Simulamos que editó un documento MIENTRAS estaba en la reunión
       const activities = [
-        { 
-          id: 1, 
-          source: 'calendar', 
-          title: 'Planning de Arquitectura', 
+        {
+          id: 1,
+          source: 'calendar',
+          title: 'Planning de Arquitectura',
           startTime: '2026-05-21T14:00:00.000Z',
-          endTime: '2026-05-21T16:00:00.000Z', // Reunión de 2 horas
-          metadata_json: { link: 'https://meet.google.com/abc-defg-hij' }
+          endTime: '2026-05-21T16:00:00.000Z',
+          metadata: { link: 'https://meet.google.com/abc-defg-hij' }
         },
-        { 
-          id: 2, 
-          source: 'drive', 
+        {
+          id: 2,
+          source: 'drive',
           title: 'Diseño Base de Datos',
-          startTime: '2026-05-21T14:30:00.000Z', // Solapado
-          metadata_json: { mimeType: 'application/vnd.google-apps.document' }
+          startTime: '2026-05-21T14:30:00.000Z',
+          metadata: { mimeType: 'application/vnd.google-apps.document' }
         }
       ];
-      
+
       const result = groupByApp(activities);
-      
+
       expect(result.Meet).toHaveLength(1);
       expect(result.Docs).toHaveLength(1);
-      // Validamos que los otros cajones estén vacíos
       expect(result.Calendar).toHaveLength(0);
       expect(result.Sheets).toHaveLength(0);
       expect(result.Drive).toHaveLength(0);
     });
 
-    test('Caso 5: Todo el día en reuniones de Meet', () => {
+    test('Caso 2: Todo el día en reuniones de Meet (link de meet.google.com)', () => {
       const activities = [
-        { source: 'calendar', title: 'Daily Meet', metadata_json: { link: 'https://meet.google.com/123' } },
-        { source: 'calendar', title: 'Planning', metadata_json: { link: 'https://meet.google.com/456' } },
-        { source: 'calendar', title: 'Retro de Sprint', metadata_json: { link: 'https://meet.google.com/789' } }
+        { source: 'calendar', title: 'Daily', metadata: { link: 'https://meet.google.com/123' } },
+        { source: 'calendar', title: 'Planning', metadata: { link: 'https://meet.google.com/456' } },
+        { source: 'calendar', title: 'Retro de Sprint', metadata: { link: 'https://meet.google.com/789' } }
       ];
-      
+
       const result = groupByApp(activities);
-      
-      expect(result.Meet).toHaveLength(3); // Las 3 fueron a Meet
-      expect(result.Calendar).toHaveLength(0); // Ninguna fue a Calendar genérico
+
+      expect(result.Meet).toHaveLength(3);
+      expect(result.Calendar).toHaveLength(0);
     });
 
-    test('Caso 6: Actividades de un solo minuto y archivos generales', () => {
+    test('Caso 3: Evento de Calendar sin link de Meet cae en Calendar aunque el título diga "meet"', () => {
       const activities = [
-        { 
-          source: 'drive', 
+        { source: 'calendar', title: 'Meeting con cliente presencial', metadata: {} },
+        { source: 'calendar', title: 'Meet con Juan en la cafetería', metadata: {} },
+      ];
+
+      const result = groupByApp(activities);
+
+      expect(result.Calendar).toHaveLength(2);
+      expect(result.Meet).toHaveLength(0);
+    });
+
+    test('Caso 4: Actividades de un solo minuto y archivos generales', () => {
+      const activities = [
+        {
+          source: 'drive',
           title: 'diagrama_arquitectura.png',
           startTime: '2026-05-21T10:00:00.000Z',
-          endTime: '2026-05-21T10:01:00.000Z', // Duró 1 minuto
-          metadata_json: { mimeType: 'image/png' } // No es un Doc ni un Sheet
+          endTime: '2026-05-21T10:01:00.000Z',
+          metadata: { mimeType: 'image/png' }
         }
       ];
-      
+
       const result = groupByApp(activities);
-      
-      expect(result.Drive).toHaveLength(1); // Va a la bolsa general de Drive
+
+      expect(result.Drive).toHaveLength(1);
       expect(result.Docs).toHaveLength(0);
       expect(result.Sheets).toHaveLength(0);
+    });
+
+    test('Caso 5: Slides se agrupan en su propio bucket', () => {
+      const activities = [
+        { source: 'drive', metadata: { mimeType: 'application/vnd.google-apps.presentation' } },
+        { source: 'drive', metadata: { link: 'https://slides.google.com/presentation/d/xyz' } },
+      ];
+
+      const result = groupByApp(activities);
+
+      expect(result.Slides).toHaveLength(2);
+      expect(result.Drive).toHaveLength(0);
+    });
+
+    test('Caso 6: Actividades de Jira van al bucket Jira', () => {
+      const activities = [
+        { source: 'jira', title: 'PROJ-123 fix bug', metadata: {} },
+        { source: 'jira', title: 'PROJ-124 add feature', metadata: {} },
+      ];
+
+      const result = groupByApp(activities);
+
+      expect(result.Jira).toHaveLength(2);
+      expect(result.Other).toHaveLength(0);
+    });
+
+    test('Caso 7: Manual y sources desconocidos caen en Other (no se pierden)', () => {
+      const activities = [
+        { source: 'manual', title: 'Almuerzo', metadata: {} },
+        { source: 'wakatime', title: 'coding', metadata: {} },
+        { source: '', title: 'sin source', metadata: {} },
+      ];
+
+      const result = groupByApp(activities);
+
+      expect(result.Other).toHaveLength(3);
     });
   });
 
