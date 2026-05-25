@@ -30,10 +30,16 @@ const sanitizeForExcel = (str) => {
  */
 const sanitizeForPrompt = (str) => {
     if (!str || typeof str !== 'string') return str;
-    // Remover caracteres de control (0x00-0x1F, excepto \n, \t, \r)
-    return str
-        .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
-        .trim();
+    // Remover caracteres de control usando codePointAt instead of regex
+    let sanitized = '';
+    for (let i = 0; i < str.length; i++) {
+        const code = str.charCodeAt(i);
+        // Permitir: printable ASCII (32-126), tab (9), newline (10), carriage return (13)
+        if ((code >= 32 && code <= 126) || code === 9 || code === 10 || code === 13) {
+            sanitized += str[i];
+        }
+    }
+    return sanitized.trim();
 };
 
 /**

@@ -55,11 +55,11 @@ class OpenAIAdapter extends AIAdapter {
         const { validateAIModuleOutput } = require('../ai.schemas');
 
         if (!activities || !Array.isArray(activities) || activities.length === 0) {
-            throw new Error('Activities array cannot be empty');
+            throw new Error('Activities array cannot be empty', { cause: new Error('Invalid input') });
         }
 
         if (!userContext) {
-            throw new Error('UserContext is required');
+            throw new Error('UserContext is required', { cause: new Error('Invalid input') });
         }
 
         const sanitizedActivities = activities.map((activity) => ({
@@ -133,7 +133,7 @@ Please generate the daily report summary.`;
             });
 
             if (!response.choices || response.choices.length === 0) {
-                throw new Error('Empty response from OpenAI');
+                throw new Error('Empty response from OpenAI', { cause: new Error('API response validation failed') });
             }
 
             const responseText = response.choices[0].message.content;
@@ -146,7 +146,7 @@ Please generate the daily report summary.`;
             try {
                 parsedOutput = JSON.parse(jsonStr);
             } catch (parseError) {
-                throw new Error(`Invalid JSON from OpenAI: ${parseError.message}`);
+                throw new Error(`Invalid JSON from OpenAI: ${parseError.message}`, { cause: parseError });
             }
 
             const validatedOutput = validateAIModuleOutput(parsedOutput);
@@ -155,17 +155,16 @@ Please generate the daily report summary.`;
 
             return sanitizedOutput;
         } catch (error) {
-
             if (error.status === 429) {
-                throw new Error(`OpenAI rate limit exceeded: ${error.message}`);
+                throw new Error(`OpenAI rate limit exceeded: ${error.message}`, { cause: error });
             }
 
             if (error.status === 401 || error.status === 403) {
-                throw new Error(`OpenAI authentication failed: Invalid API key`);
+                throw new Error(`OpenAI authentication failed: Invalid API key`, { cause: error });
             }
 
             if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
-                throw new Error(`OpenAI request timeout: ${error.message}`);
+                throw new Error(`OpenAI request timeout: ${error.message}`, { cause: error });
             }
 
             throw error;

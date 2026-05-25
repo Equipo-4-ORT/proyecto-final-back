@@ -43,7 +43,7 @@ const validateAIModuleOutput = (data) => {
         return AIModuleOutputSchema.parse(data);
     } catch (error) {
         const messages = error.errors.map((e) => `${e.path.join('.')}: ${e.message}`);
-        throw new Error(`AIModuleOutput validation failed: ${messages.join('; ')}`);
+        throw new Error(`AIModuleOutput validation failed: ${messages.join('; ')}`, { cause: error });
     }
 };
 
