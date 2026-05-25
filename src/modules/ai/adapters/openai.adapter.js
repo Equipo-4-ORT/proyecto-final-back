@@ -21,8 +21,8 @@ const buildClient = () => {
     }
     return new OpenAI({
         apiKey: process.env.OPENAI_API_KEY,
-        // TODO: cuando se implemente generateSummary, fijar `timeout` y
-        // `maxRetries` explícitos para que las llamadas no queden colgadas.
+        timeout: 30000, // 30 segundos
+        maxRetries: 3,
     });
 };
 
@@ -50,37 +50,126 @@ class OpenAIAdapter extends AIAdapter {
      * @param {UserContext} userContext - Contexto del usuario
      * @returns {Promise<AIModuleOutput>} Resumen estructurado
      */
-    async generateSummary(_activities, _userContext) {
-        // TODO antes de pasar a producción.
-        //
-        // PARTE GENÉRICA (vive en módulos compartidos, reusable por
-        // CUALQUIER adapter — OpenAI, Bedrock, Gemini, etc.):
-        //   - Sanitizar inputs antes de mandarlos al modelo. Los títulos
-        //     de eventos / descripciones de Jira pueden contener prompt-
-        //     injection ("Ignore previous instructions..."). Helper
-        //     compartido: `ai.sanitize.js` (crear cuando se implemente
-        //     el primer generateSummary).
-        //   - Validar el output parseado contra el schema de
-        //     `AIModuleOutput`. Schema compartido entre adapters:
-        //     `ai.schemas.js` definido con Zod. Aclaración: Zod NO es
-        //     una dep de OpenAI — es una librería genérica del proyecto,
-        //     usada por todos los adapters para validar su output.
-        //   - Sanitizar strings del output contra formula injection en
-        //     Excel antes de devolver (ver `ai.output.types.js:67`).
-        //     Helper compartido: `ai.sanitize.js`.
-        //
-        // PARTE ESPECÍFICA DE OPENAI (vive solo en este archivo):
-        //   - Estructurar las messages como [{role:'system'},{role:'user'}]
-        //     con instrucciones inmutables en system y datos en user.
-        //   - Forzar el shape de salida con
-        //     `response_format: { type: 'json_schema', schema: ... }`. El
-        //     SDK trae `zodResponseFormat()` que convierte el schema Zod
-        //     compartido al formato que pide OpenAI — esa es la única
-        //     integración OpenAI↔Zod, no implica que Zod sea OpenAI-only.
-        //   - Setear `max_tokens` para acotar costo y latencia.
-        //   - Evaluar Zero Data Retention en la cuenta OpenAI si los
-        //     datos de actividad son sensibles (privacidad / Ley 25.326).
-        throw new Error('Not implemented yet');
+    async generateSummary(activities, userContext) {
+        const { sanitizeForPrompt, sanitizeObjectForExcel } = require('../ai.sanitize');
+        const { validateAIModuleOutput } = require('../ai.schemas');
+
+        if (!activities || !Array.isArray(activities) || activities.length === 0) {
+            throw new Error('Activities array cannot be empty');
+        }
+
+        if (!userContext) {
+            throw new Error('UserContext is required');
+        }
+
+        const sanitizedActivities = activities.map((activity) => ({
+            ...activity,
+            metadata: {
+                ...activity.metadata,
+                title: sanitizeForPrompt(activity.metadata?.title || ''),
+                description: sanitizeForPrompt(activity.metadata?.description || ''),
+            },
+        }));
+
+        const systemPrompt = `You are an AI assistant that summarizes work activities into a structured daily report.
+
+Your task is to:
+1. Analyze a list of activities from a user's workday
+2. Group related activities by time and application
+3. Generate a professional executive summary
+4. Return a JSON object with the exact structure specified below
+
+IMPORTANT:
+- All times must be in HH:mm format (24-hour)
+- Duration must be in minutes (integer)
+- All strings must be sanitized (no formula injection chars: =, +, -, @)
+- Return ONLY valid JSON, no additional text
+- Dates must be in YYYY-MM-DD format
+
+Expected JSON structure:
+{
+  "daySummary": "2-3 sentence executive summary of the entire day",
+  "rows": [
+    {
+      "date": "YYYY-MM-DD",
+      "startTime": "HH:mm",
+      "endTime": "HH:mm",
+      "duration": <number in minutes>,
+      "source": "calendar|drive|jira",
+      "app": "Meet|Docs|Sheets|Drive|Jira|...",
+      "activityType": "meeting|edit|transition|...",
+      "title": "activity title",
+      "description": "optional description",
+      "summary": "brief summary of what was done"
+    }
+  ],
+  "totalHours": <number of total hours worked>
+}`;
+
+        const userPrompt = `User: ${sanitizeForPrompt(userContext.name)}
+Role: ${sanitizeForPrompt(userContext.role)}
+Date: ${userContext.date instanceof Date ? userContext.date.toISOString().split('T')[0] : userContext.date}
+
+Activities:
+${JSON.stringify(sanitizedActivities, null, 2)}
+
+Please generate the daily report summary.`;
+
+        try {
+            const response = await this.client.chat.completions.create({
+                model: 'gpt-4o-mini',
+                max_tokens: 2048,
+                temperature: 0.7,
+                messages: [
+                    {
+                        role: 'system',
+                        content: systemPrompt,
+                    },
+                    {
+                        role: 'user',
+                        content: userPrompt,
+                    },
+                ],
+            });
+
+            if (!response.choices || response.choices.length === 0) {
+                throw new Error('Empty response from OpenAI');
+            }
+
+            const responseText = response.choices[0].message.content;
+
+            // Intentar extraer JSON si está envuelto en markdown
+            let jsonMatch = responseText.match(/```json\s*([\s\S]*?)\s*```/);
+            let jsonStr = jsonMatch ? jsonMatch[1] : responseText;
+
+            let parsedOutput;
+            try {
+                parsedOutput = JSON.parse(jsonStr);
+            } catch (parseError) {
+                throw new Error(`Invalid JSON from OpenAI: ${parseError.message}`);
+            }
+
+            const validatedOutput = validateAIModuleOutput(parsedOutput);
+
+            const sanitizedOutput = sanitizeObjectForExcel(validatedOutput);
+
+            return sanitizedOutput;
+        } catch (error) {
+
+            if (error.status === 429) {
+                throw new Error(`OpenAI rate limit exceeded: ${error.message}`);
+            }
+
+            if (error.status === 401 || error.status === 403) {
+                throw new Error(`OpenAI authentication failed: Invalid API key`);
+            }
+
+            if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
+                throw new Error(`OpenAI request timeout: ${error.message}`);
+            }
+
+            throw error;
+        }
     }
 }
 
