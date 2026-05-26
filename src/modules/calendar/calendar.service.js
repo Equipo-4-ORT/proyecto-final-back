@@ -35,24 +35,24 @@ const persistCalendarActivities = async (userId, refreshToken, dateStr) => {
     const activitiesToSave = [];
 
     for (const event of rawEvents) {
-        console.log(`\n🔍 Evaluando evento: "${event.summary || 'Sin título'}"`);
+        //console.log(`\n🔍 Evaluando evento: "${event.summary || 'Sin título'}"`);
         if (!event.start?.dateTime || !event.end?.dateTime) { 
-            console.log(`   ❌ Descartado: No tiene dateTime exacto (probablemente evento de todo el día)`);
+           // console.log(`   ❌ Descartado: No tiene dateTime exacto (probablemente evento de todo el día)`);
             continue; // Ignorar eventos sin fecha/hora de inicio
         
         }
-        if (!event.attendees || !event.attendees.length === 0) { 
-            console.log(`   ❌ Descartado: No tiene asistentes`);
+        if (!event.attendees || event.attendees.length === 0) { 
+            // console.log(`   ❌ Descartado: No tiene asistentes`);
             continue; // Ignorar eventos sin asistentes
         }
 
         const userAttendee = event.attendees.find(a => a.email === event.organizer?.email || a.self);
-        if (!userAttendee && user.userAttendee.responseStatus === 'declined'){ 
-            console.log(`   ❌ Descartado: El usuario ha rechazado la invitación`);
+        if (userAttendee && userAttendee.responseStatus === 'declined'){ 
+            // console.log(`   ❌ Descartado: El usuario ha rechazado la invitación`);
             continue; // Ignorar eventos donde el usuario no es organizador ni asistente, o donde el usuario ha rechazado la invitación 
         }
 
-        console.log(`   ✅ ¡EVENTO ACEPTADO! Pasa todos los filtros.`);
+        // console.log(`   ✅ ¡EVENTO ACEPTADO! Pasa todos los filtros.`);
 
         const isMeet = event.conferenceData?.conferenceSolution?.key?.type === 'hangoutsMeet';
 
@@ -71,18 +71,19 @@ const persistCalendarActivities = async (userId, refreshToken, dateStr) => {
         });
     
 
-    }
+    };
+
     if (activitiesToSave.length === 0) {
         return { count: 0, message: 'No se encontraron actividades relevantes para guardar' };
     }
 
-    console.log(`\n💾 [DEBUG] Intentando insertar ${activitiesToSave.length} filas en Prisma...`);
+    // console.log(`\n💾 [DEBUG] Intentando insertar ${activitiesToSave.length} filas en Prisma...`);
 
     const result = await prisma.dailyActivity.createMany({
         data: activitiesToSave,
         skipDuplicates: true, // Evita insertar actividades con el mismo externalId
     });
-    console.log(`🎉 [EXITO] Insertadas ${result.count} actividades.`);
+    // console.log(`🎉 [EXITO] Insertadas ${result.count} actividades.`);
     return { count: result.count, message: `${result.count} actividades de calendario guardadas` };
 }
 module.exports = {
