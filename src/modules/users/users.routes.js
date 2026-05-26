@@ -1,5 +1,5 @@
 const express = require('express');
-const { authMiddleware, requireValidGoogleToken } = require('../../shared/middleware');
+const { authMiddleware} = require('../../shared/middleware');
 const { apiLimiter } = require('../../shared/middleware/rateLimiter');
 const { persistCalendarActivities } = require('../calendar/calendar.service');
 const { decrypt } = require('../../shared/utils/crypto');

@@ -17,7 +17,7 @@ const getCalendarEventsForDay = async (refreshToken, timeMin, timeMax) => {
 
     } catch (error) {
         console.error('Error fetching calendar events:', error);
-        throw new Error('Error fetching calendar events');
+        throw new Error('Error fetching calendar events', { cause: error });
     }
 };
 
