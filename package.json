@@ -35,6 +35,7 @@
     "google-auth-library": "^10.6.2",
     "googleapis": "^172.0.0",
     "jsonwebtoken": "^9.0.3",
+    "openai": "^6.39.0",
     "winston": "^3.19.0"
   },
   "devDependencies": {
