@@ -179,4 +179,210 @@ describe('jira.mapper', () => {
             expect(result.map((a) => a.activityType)).toEqual(['comment', 'transition', 'worklog']);
         });
     });
+
+    describe('metadata.title (legibilidad para dashboard)', () => {
+        test('comment: usa "Comentario en \\"<summary>\\" (<key>)"', () => {
+            const comments = [{ id: 'c1', author: { accountId: ME }, created: '2026-05-10T10:00:00.000Z' }];
+            const [activity] = mapper.mapCommentsToActivities('u', issue, comments, ME, WINDOW_START, WINDOW_END);
+            expect(activity.metadata.title).toBe('Comentario en "Arreglar el login" (PROJ-42)');
+        });
+
+        test('transition: usa "<summary> · <from> → <to> (<key>)"', () => {
+            const histories = [{
+                id: 'h1',
+                author: { accountId: ME },
+                created: '2026-05-10T10:00:00.000Z',
+                items: [{ field: 'status', fromString: 'In Progress', toString: 'Done' }],
+            }];
+            const [activity] = mapper.mapChangelogToActivities('u', issue, histories, ME, WINDOW_START, WINDOW_END);
+            expect(activity.metadata.title).toBe('Arreglar el login · In Progress → Done (PROJ-42)');
+        });
+
+        test('transition sin fromString/toString → fallback "?"', () => {
+            const histories = [{
+                id: 'h1',
+                author: { accountId: ME },
+                created: '2026-05-10T10:00:00.000Z',
+                items: [{ field: 'status' }],
+            }];
+            const [activity] = mapper.mapChangelogToActivities('u', issue, histories, ME, WINDOW_START, WINDOW_END);
+            expect(activity.metadata.title).toBe('Arreglar el login · ? → ? (PROJ-42)');
+        });
+
+        test('worklog: usa "<summary> · <duration> (<key>)"', () => {
+            const worklogs = [
+                { id: 'w1', author: { accountId: ME }, started: '2026-05-10T14:00:00.000Z', timeSpentSeconds: 5400 },
+            ];
+            const [activity] = mapper.mapWorklogsToActivities('u', issue, worklogs, ME, WINDOW_START, WINDOW_END);
+            expect(activity.metadata.title).toBe('Arreglar el login · 1h 30m (PROJ-42)');
+        });
+
+        test('issue sin summary → usa key como fallback', () => {
+            const noSummary = { key: 'X-1', fields: { status: { name: 'Done' } } };
+            const histories = [{
+                id: 'h1', author: { accountId: ME }, created: '2026-05-10T10:00:00.000Z',
+                items: [{ field: 'status', fromString: 'a', toString: 'b' }],
+            }];
+            const [activity] = mapper.mapChangelogToActivities('u', noSummary, histories, ME, WINDOW_START, WINDOW_END);
+            expect(activity.metadata.title).toBe('X-1 · a → b (X-1)');
+        });
+    });
+
+    describe('metadata.description (ADF → texto plano)', () => {
+        test('extrae texto de un body ADF anidado', () => {
+            const body = {
+                type: 'doc',
+                content: [
+                    { type: 'paragraph', content: [
+                        { type: 'text', text: 'Probé en staging' },
+                        { type: 'text', text: ' y funciona.' },
+                    ] },
+                ],
+            };
+            const comments = [{ id: 'c1', author: { accountId: ME }, created: '2026-05-10T10:00:00.000Z', body }];
+            const [activity] = mapper.mapCommentsToActivities('u', issue, comments, ME, WINDOW_START, WINDOW_END);
+            expect(activity.metadata.description).toBe('Probé en staging y funciona.');
+        });
+
+        test('body ausente / null → no se setea description', () => {
+            const comments = [{ id: 'c1', author: { accountId: ME }, created: '2026-05-10T10:00:00.000Z' }];
+            const [activity] = mapper.mapCommentsToActivities('u', issue, comments, ME, WINDOW_START, WINDOW_END);
+            expect(activity.metadata.description).toBeUndefined();
+        });
+    });
+
+    describe('seguridad: input adversarial en summary / comment body', () => {
+        test('payload tipo XSS en summary se conserva como texto plano (no escapado, no ejecutado)', () => {
+            const evilIssue = {
+                key: 'PROJ-99',
+                fields: {
+                    summary: '<script>alert(1)</script>',
+                    status: { name: 'Done' },
+                    project: { key: 'PROJ' },
+                },
+            };
+            const histories = [{
+                id: 'h1', author: { accountId: ME }, created: '2026-05-10T10:00:00.000Z',
+                items: [{ field: 'status', fromString: 'To Do', toString: 'Done' }],
+            }];
+            const [activity] = mapper.mapChangelogToActivities('u', evilIssue, histories, ME, WINDOW_START, WINDOW_END);
+            // El backend NO escapa: emite texto plano. El consumidor (front React) auto-escapa al
+            // renderizar y nunca interpreta esto como HTML.
+            expect(activity.metadata.title).toContain('<script>alert(1)</script>');
+            expect(activity.metadata.title).not.toMatch(/<script>.*<\/script>.*<script>/); // no duplicación
+        });
+
+        test('control chars (BEL, NUL, ESC) en summary son removidos antes de persistir', () => {
+            // \x07, \x00, \x1b no son whitespace: tras strip los lados quedan adyacentes.
+            // El espacio normal se preserva (colapsado a uno solo si hay varios).
+            const evilIssue = {
+                key: 'PROJ-100',
+                fields: { summary: 'Hola\x07\x00mundo\x1b!', status: { name: 'X' }, project: { key: 'P' } },
+            };
+            const histories = [{
+                id: 'h', author: { accountId: ME }, created: '2026-05-10T10:00:00.000Z',
+                items: [{ field: 'status', fromString: 'a', toString: 'b' }],
+            }];
+            const [activity] = mapper.mapChangelogToActivities('u', evilIssue, histories, ME, WINDOW_START, WINDOW_END);
+            expect(activity.metadata.title).toContain('Holamundo!');
+            // eslint-disable-next-line no-control-regex
+            expect(activity.metadata.title).not.toMatch(/[\x00-\x08\x0E-\x1F\x7F]/);
+        });
+
+        test('summary gigantesco se trunca por debajo de MAX_TITLE_CHARS', () => {
+            const giant = 'A'.repeat(5000);
+            const evilIssue = { key: 'P-1', fields: { summary: giant, status: {}, project: {} } };
+            const histories = [{
+                id: 'h', author: { accountId: ME }, created: '2026-05-10T10:00:00.000Z',
+                items: [{ field: 'status', fromString: 'x', toString: 'y' }],
+            }];
+            const [activity] = mapper.mapChangelogToActivities('u', evilIssue, histories, ME, WINDOW_START, WINDOW_END);
+            expect(activity.metadata.title.length).toBeLessThanOrEqual(mapper._internal.MAX_TITLE_CHARS);
+        });
+    });
+
+    describe('_internal.sanitizeText', () => {
+        const { sanitizeText } = mapper._internal;
+
+        test('null/undefined → ""', () => {
+            expect(sanitizeText(null, 100)).toBe('');
+            expect(sanitizeText(undefined, 100)).toBe('');
+        });
+
+        test('colapsa whitespace y hace trim', () => {
+            expect(sanitizeText('  hola   mundo \t\n  ', 100)).toBe('hola mundo');
+        });
+
+        test('trunca con ellipsis cuando supera maxChars', () => {
+            const out = sanitizeText('A'.repeat(50), 10);
+            expect(out).toBe('AAAAAAA...');
+            expect(out.length).toBe(10);
+        });
+
+        test('maxChars inválido o no provisto → no trunca', () => {
+            expect(sanitizeText('hola', 0)).toBe('hola');
+            expect(sanitizeText('hola')).toBe('hola');
+        });
+    });
+
+    describe('_internal.extractAdfText', () => {
+        const { extractAdfText, ADF_MAX_NODES, ADF_MAX_DEPTH } = mapper._internal;
+
+        test('body no-objeto → ""', () => {
+            expect(extractAdfText(null)).toBe('');
+            expect(extractAdfText(undefined)).toBe('');
+            expect(extractAdfText('string')).toBe('');
+            expect(extractAdfText(42)).toBe('');
+        });
+
+        test('árbol con marks no ejecuta ni interpreta el atributo href', () => {
+            // Un mark con href javascript: nunca debe llegar al consumidor porque
+            // extractAdfText solo lee `text` y descarta atributos / marks.
+            const body = {
+                type: 'doc',
+                content: [{
+                    type: 'paragraph',
+                    content: [{
+                        type: 'text',
+                        text: 'click aquí',
+                        marks: [{ type: 'link', attrs: { href: 'javascript:alert(1)' } }],
+                    }],
+                }],
+            };
+            expect(extractAdfText(body)).toBe('click aquí');
+        });
+
+        test('árbol profundo más allá de ADF_MAX_DEPTH se corta sin lanzar', () => {
+            // Construyo un árbol con depth = ADF_MAX_DEPTH + 5
+            let node = { type: 'text', text: 'profundo' };
+            for (let i = 0; i < ADF_MAX_DEPTH + 5; i += 1) {
+                node = { type: 'wrap', content: [node] };
+            }
+            expect(() => extractAdfText(node)).not.toThrow();
+        });
+
+        test('árbol con más de ADF_MAX_NODES nodos se corta sin lanzar', () => {
+            const content = [];
+            for (let i = 0; i < ADF_MAX_NODES * 2; i += 1) {
+                content.push({ type: 'text', text: 'x' });
+            }
+            const body = { type: 'doc', content };
+            const out = extractAdfText(body, 100);
+            expect(typeof out).toBe('string');
+            expect(out.length).toBeLessThanOrEqual(100);
+        });
+    });
+
+    describe('_internal.formatDuration', () => {
+        const { formatDuration } = mapper._internal;
+        test('0 → "0s"', () => expect(formatDuration(0)).toBe('0s'));
+        test('45 → "45s"', () => expect(formatDuration(45)).toBe('45s'));
+        test('60 → "1m"', () => expect(formatDuration(60)).toBe('1m'));
+        test('3600 → "1h"', () => expect(formatDuration(3600)).toBe('1h'));
+        test('5400 → "1h 30m"', () => expect(formatDuration(5400)).toBe('1h 30m'));
+        test('negativos / NaN → "0s"', () => {
+            expect(formatDuration(-10)).toBe('0s');
+            expect(formatDuration('nope')).toBe('0s');
+        });
+    });
 });
