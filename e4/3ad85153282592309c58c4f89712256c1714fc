@@ -1,0 +1,26 @@
+src/modules/jira/jira.mapper.js
+  s_f6099349ac0c7a::t_11ac5f51a7a6a4 291-302
+  s_f6099349ac0c7a::t_a8b9f6310a2efe 11-15,20-146
+  s_f6099349ac0c7a::t_c9dc99ae39b64f 228,234
+  s_f6099349ac0c7a::t_cc75177079c30e 257,264
+  s_f6099349ac0c7a::t_033f9634d46e73 168,180-184
+  s_f6099349ac0c7a::t_9db520e9a29b4c 198-210
+tests/modules/jira/jira.mapper.test.js
+  s_f6099349ac0c7a::t_c036bfa83f832a 182-387
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "e43ad85153282592309c58c4f89712256c1714fc",
+  "prompts": {},
+  "sessions": {
+    "s_f6099349ac0c7a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4014b089-203d-4dff-926d-ced2341b6ecf",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "LicFuraca <martinexequield@gmail.com>"
+    }
+  }
+}
