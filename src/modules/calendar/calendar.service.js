@@ -35,29 +35,30 @@ const persistCalendarActivities = async (userId, refreshToken, dateStr) => {
     const activitiesToSave = [];
 
     for (const event of rawEvents) {
-        //console.log(`\n🔍 Evaluando evento: "${event.summary || 'Sin título'}"`);
+        console.log(`\n🔍 Evaluando evento: "${event.summary || 'Sin título'}"`);
         if (!event.start?.dateTime || !event.end?.dateTime) { 
-           // console.log(`   ❌ Descartado: No tiene dateTime exacto (probablemente evento de todo el día)`);
+            console.log(`   ❌ Descartado: No tiene dateTime exacto (probablemente evento de todo el día)`);
             continue; // Ignorar eventos sin fecha/hora de inicio
         
         }
         if (!event.attendees || event.attendees.length === 0) { 
-            // console.log(`   ❌ Descartado: No tiene asistentes`);
+           console.log(`   ❌ Descartado: No tiene asistentes`);
             continue; // Ignorar eventos sin asistentes
         }
 
         const userAttendee = event.attendees.find(a => a.email === event.organizer?.email || a.self);
         if (userAttendee && userAttendee.responseStatus === 'declined'){ 
-            // console.log(`   ❌ Descartado: El usuario ha rechazado la invitación`);
+            console.log(`   ❌ Descartado: El usuario ha rechazado la invitación`);
             continue; // Ignorar eventos donde el usuario no es organizador ni asistente, o donde el usuario ha rechazado la invitación 
         }
 
-        // console.log(`   ✅ ¡EVENTO ACEPTADO! Pasa todos los filtros.`);
+        console.log(`   ✅ ¡EVENTO ACEPTADO! Pasa todos los filtros.`);
 
         const isMeet = event.conferenceData?.conferenceSolution?.key?.type === 'hangoutsMeet';
 
         activitiesToSave.push({
          userId: userId, //
+         title: event.summary || 'Sin título', 
       source: 'calendar', //
       activityType: isMeet ? 'meeting' : 'event', //
       externalId: event.id, // Usamos el ID del evento para evitar duplicados futuros

@@ -78,6 +78,7 @@ model DailyActivity {
   id           String   @id @default(uuid())
   userId       String   @map("user_id")
   // TODO: Migrar a enum cuando se integre Google APIs y Jira (ver valores reales devueltos por las APIs)
+  title        String? // 
   source       String   // Ej: 'calendar', 'drive', 'jira'
   // TODO: Migrar a enum cuando se integre Google APIs y Jira (ver valores reales devueltos por las APIs)
   activityType String   @map("activity_type") // Ej: 'meeting', 'edit'
