@@ -34,6 +34,7 @@
     "express-rate-limit": "^7.0.0",
     "google-auth-library": "^10.6.2",
     "jsonwebtoken": "^9.0.3",
+    "luxon": "^3.7.2",
     "openai": "^6.39.0",
     "winston": "^3.19.0"
   },
