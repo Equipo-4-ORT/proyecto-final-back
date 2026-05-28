@@ -44,6 +44,24 @@ const verifyGoogleToken = async (token) => {
     };
 };
 
+/**
+ * Devuelve un OAuth2Client autenticado con el refresh token ya descifrado.
+ * El llamador (controller) es responsable de obtener y descifrar el token.
+ * @param {string} refreshToken - Refresh token descifrado del usuario
+ */
+const getAuthenticatedGoogleClient = (refreshToken) => {
+    if (!refreshToken) {
+        throw new Error('Refresh token requerido para obtener cliente autenticado');
+    }
+    const oauth2Client = new OAuth2Client(
+        process.env.GOOGLE_CLIENT_ID,
+        process.env.GOOGLE_CLIENT_SECRET,
+    );
+    oauth2Client.setCredentials({ refresh_token: refreshToken });
+    return oauth2Client;
+};
+
 module.exports = {
-    verifyGoogleToken
+    verifyGoogleToken,
+    getAuthenticatedGoogleClient,
 };
