@@ -37,6 +37,7 @@ const loginGoogleUser = async (googleData, encryptedRefreshToken = null) => {
         googleId,
         fullName: fullName || user.fullName,
         ...(encryptedRefreshToken && { refreshToken: encryptedRefreshToken }),
+        googleReconnectRequired: false,
       },
     });
     return updatedUser;

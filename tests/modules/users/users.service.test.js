@@ -110,6 +110,16 @@ describe('Servicio de Usuarios (loginGoogleUser)', () => {
         ).rejects.toThrow('email y googleId son requeridos');
     });
 
+    test('Siempre resetea googleReconnectRequired a false en el update', async () => {
+        prisma.user.findUnique.mockResolvedValue(ACTIVE_USER);
+        prisma.user.update.mockResolvedValue(ACTIVE_USER);
+
+        await loginGoogleUser(BASE_GOOGLE_DATA, null);
+
+        const callArgs = prisma.user.update.mock.calls[0][0];
+        expect(callArgs.data.googleReconnectRequired).toBe(false);
+    });
+
     test('Lanza error controlado si la BD falla al actualizar', async () => {
         prisma.user.findUnique.mockResolvedValue(ACTIVE_USER);
         prisma.user.update.mockRejectedValue(new Error('Conexión perdida'));

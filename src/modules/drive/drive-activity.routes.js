@@ -2,14 +2,13 @@ const express = require('express');
 const router = express.Router();
 const authMiddleware = require('../../shared/middleware/authMiddleware');
 const requireActiveUser = require('../../shared/middleware/requireActiveUser');
-const { getActivities, postActivity, putActivity, deleteActivityHandler } = require('./activities.controller');
+const requireValidGoogleToken = require('../../shared/middleware/requireValidGoogleToken');
+const { syncDriveActivities } = require('./drive-activity.controller');
 
 router.use(authMiddleware);
 router.use(requireActiveUser);
+router.use(requireValidGoogleToken);
 
-router.get('/', getActivities);
-router.post('/', postActivity);
-router.put('/:id', putActivity);
-router.delete('/:id', deleteActivityHandler);
+router.post('/sync', syncDriveActivities);
 
 module.exports = router;
