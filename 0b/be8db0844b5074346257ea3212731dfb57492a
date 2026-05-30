@@ -1,0 +1,19 @@
+src/modules/drive/drive-activity.controller.js
+  s_7f7767967efcda::t_0a6492a92823ec 16-19
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "0bbe8db0844b5074346257ea3212731dfb57492a",
+  "prompts": {},
+  "sessions": {
+    "s_7f7767967efcda": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5484eb41-5346-46a6-b0f8-f057bf2981de",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "LicFuraca <martinexequield@gmail.com>"
+    }
+  }
+}
