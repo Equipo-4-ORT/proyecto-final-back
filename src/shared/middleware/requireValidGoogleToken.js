@@ -3,10 +3,25 @@ const prisma = require('../database/prisma');
 const { decrypt } = require('../utils/crypto');
 const logger = require('../utils/logger');
 
-const googleClient = new OAuth2Client(
-    process.env.GOOGLE_CLIENT_ID,
-    process.env.GOOGLE_CLIENT_SECRET
-);
+/**
+ * Crea un OAuth2Client nuevo por request. Importante: NO usar un cliente de
+ * nivel módulo y mutarlo con setCredentials() — sería estado compartido entre
+ * requests concurrentes y un usuario podría terminar validando con el refresh
+ * token de otro (race condition).
+ */
+const buildGoogleClient = (refreshToken) => {
+    const client = new OAuth2Client(
+        process.env.GOOGLE_CLIENT_ID,
+        process.env.GOOGLE_CLIENT_SECRET,
+    );
+    client.setCredentials({ refresh_token: refreshToken });
+    return client;
+};
+
+const RECONNECT_RESPONSE = {
+    error: 'google_auth_required',
+    message: 'La conexión con Google ha expirado o fue revocada. Por favor, vuelve a reconectar tu cuenta.',
+};
 
 const requireValidGoogleToken = async (req, res, next) => {
     try {
@@ -16,7 +31,7 @@ const requireValidGoogleToken = async (req, res, next) => {
 
         const user = await prisma.user.findUnique({
             where: { id: req.user.id },
-            select: { refreshToken: true },
+            select: { refreshToken: true, googleReconnectRequired: true },
         });
 
         if (!user || !user.refreshToken) {
@@ -26,22 +41,32 @@ const requireValidGoogleToken = async (req, res, next) => {
             });
         }
 
+        // Si el flag ya estaba activo, evitamos una llamada innecesaria a Google
+        if (user.googleReconnectRequired) {
+            return res.status(401).json(RECONNECT_RESPONSE);
+        }
+
         const refreshToken = decrypt(user.refreshToken);
-
-        googleClient.setCredentials({ refresh_token: refreshToken });
-
+        const googleClient = buildGoogleClient(refreshToken);
         await googleClient.getAccessToken();
 
         next();
 
     } catch (error) {
         logger.warn(`Error validando refresh token de google para user ${req.user.id}: ${error.message}`);
+
         if (error.message.includes('invalid_grant') || error.response?.status === 400 || error.response?.status === 401) {
-            return res.status(401).json({
-                error: 'google_auth_required',
-                message: 'La conexión con Google ha expirado o fue revocada. Por favor, vuelve a reconectar tu cuenta.'
-            });
+            try {
+                await prisma.user.update({
+                    where: { id: req.user.id },
+                    data: { googleReconnectRequired: true },
+                });
+            } catch (dbError) {
+                logger.error(`Error al marcar googleReconnectRequired para user ${req.user.id}`, { error: dbError });
+            }
+            return res.status(401).json(RECONNECT_RESPONSE);
         }
+
         next(error);
     }
 };

@@ -47,7 +47,9 @@ model User {
   jiraSiteUrl           String?   @map("jira_site_url")
   jiraConnectedAt       DateTime? @map("jira_connected_at")
   jiraLastSyncAt        DateTime? @map("jira_last_sync_at")
-  jiraReconnectRequired Boolean   @default(false) @map("jira_reconnect_required")
+  jiraReconnectRequired   Boolean   @default(false) @map("jira_reconnect_required")
+  // —— Google (token revocado) ——
+  googleReconnectRequired Boolean   @default(false) @map("google_reconnect_required")
   // ————————————————————————————
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @default(now()) @updatedAt @map("updated_at")
@@ -78,6 +80,7 @@ model DailyActivity {
   id           String   @id @default(uuid())
   userId       String   @map("user_id")
   // TODO: Migrar a enum cuando se integre Google APIs y Jira (ver valores reales devueltos por las APIs)
+  title        String?  // Título de la actividad (ej: summary del evento de Calendar)
   source       String   // Ej: 'calendar', 'drive', 'jira'
   // TODO: Migrar a enum cuando se integre Google APIs y Jira (ver valores reales devueltos por las APIs)
   activityType String   @map("activity_type") // Ej: 'meeting', 'edit'
