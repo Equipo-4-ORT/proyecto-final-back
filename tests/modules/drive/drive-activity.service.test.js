@@ -3,9 +3,14 @@ process.env.GOOGLE_CLIENT_SECRET = 'test-client-secret';
 process.env.ADMIN_SECRET_KEY = 'test-admin-key';
 
 const { google } = require('googleapis');
-const { getDriveActivitiesForDay, persistDriveActivities } = require('../../../src/modules/drive/drive-activity.service');
+const {
+    getDriveActivitiesForDay,
+    persistDriveActivities,
+    InvalidWindowError,
+} = require('../../../src/modules/drive/drive-activity.service');
 const { getAuthenticatedGoogleClient } = require('../../../src/modules/google/google.service');
 const prisma = require('../../../src/shared/database/prisma');
+const logger = require('../../../src/shared/utils/logger');
 
 jest.mock('googleapis', () => ({
     google: {
@@ -20,6 +25,7 @@ jest.mock('../../../src/shared/database/prisma', () => ({
 }));
 jest.mock('../../../src/shared/utils/logger', () => ({
     error: jest.fn(),
+    warn: jest.fn(),
 }));
 
 describe('Drive Activity Service', () => {
@@ -78,6 +84,23 @@ describe('Drive Activity Service', () => {
             expect(mockActivityQuery.mock.calls[1][0].requestBody.pageToken).toBe('token-pagina-2');
         });
 
+        test('Corta la paginación al alcanzar el tope de páginas y loguea un warn', async () => {
+            // nextPageToken nunca se vacía: simula el bug de token cíclico de la API.
+            mockActivityQuery.mockResolvedValue({
+                data: { activities: [], nextPageToken: 'loop' },
+            });
+
+            const result = await getDriveActivitiesForDay('token', '2026-05-26T00:00:00Z', '2026-05-27T00:00:00Z');
+
+            // No entra en loop infinito: corta en MAX_PAGES (100).
+            expect(result).toEqual([]);
+            expect(mockActivityQuery).toHaveBeenCalledTimes(100);
+            expect(logger.warn).toHaveBeenCalledWith(
+                'Tope de páginas de Drive Activity alcanzado',
+                expect.objectContaining({ pages: 100 }),
+            );
+        });
+
         test('Lanza error si la API falla', async () => {
             mockActivityQuery.mockRejectedValue(new Error('Google API caída'));
 
@@ -88,11 +111,36 @@ describe('Drive Activity Service', () => {
     });
 
     // ====================================================================
-    // SUITE 2: persistDriveActivities — filtros, mapeo y persistencia
+    // SUITE 2: persistDriveActivities — ventana, filtros, mapeo y persistencia
     // ====================================================================
     describe('persistDriveActivities', () => {
         const mockUserId = 'user-uuid-123';
-        const mockDateStr = '2026-05-26';
+        // Ventana de un día para un usuario en UTC-3 (jornada del 2026-05-26 en BsAs).
+        const startTime = '2026-05-26T03:00:00.000Z';
+        const endTime = '2026-05-27T03:00:00.000Z';
+
+        test('Usa la ventana [startTime, endTime) recibida en el filtro de la API', async () => {
+            mockActivityQuery.mockResolvedValue({ data: { activities: [] } });
+
+            await persistDriveActivities(mockUserId, 'token', startTime, endTime);
+
+            const { filter } = mockActivityQuery.mock.calls[0][0].requestBody;
+            expect(filter).toBe('time >= "2026-05-26T03:00:00.000Z" AND time < "2026-05-27T03:00:00.000Z"');
+        });
+
+        test('Lanza InvalidWindowError si startTime >= endTime (sin llamar a la API)', async () => {
+            await expect(
+                persistDriveActivities(mockUserId, 'token', '2026-05-27T00:00:00Z', '2026-05-26T00:00:00Z')
+            ).rejects.toBeInstanceOf(InvalidWindowError);
+            expect(mockActivityQuery).not.toHaveBeenCalled();
+        });
+
+        test('Lanza InvalidWindowError si las fechas no son parseables', async () => {
+            await expect(
+                persistDriveActivities(mockUserId, 'token', 'no-es-fecha', '2026-05-26T00:00:00Z')
+            ).rejects.toBeInstanceOf(InvalidWindowError);
+            expect(mockActivityQuery).not.toHaveBeenCalled();
+        });
 
         test('Filtra acciones no relevantes (rename, move, delete, comment)', async () => {
             const irrelevantActivities = ['rename', 'move', 'delete', 'comment'].map(type => ({
@@ -102,7 +150,7 @@ describe('Drive Activity Service', () => {
             }));
             mockActivityQuery.mockResolvedValue({ data: { activities: irrelevantActivities } });
 
-            const result = await persistDriveActivities(mockUserId, 'token', mockDateStr);
+            const result = await persistDriveActivities(mockUserId, 'token', startTime, endTime);
 
             expect(result.count).toBe(0);
             expect(prisma.dailyActivity.createMany).not.toHaveBeenCalled();
@@ -119,7 +167,7 @@ describe('Drive Activity Service', () => {
             }));
             mockActivityQuery.mockResolvedValue({ data: { activities: excluded } });
 
-            const result = await persistDriveActivities(mockUserId, 'token', mockDateStr);
+            const result = await persistDriveActivities(mockUserId, 'token', startTime, endTime);
 
             expect(result.count).toBe(0);
             expect(prisma.dailyActivity.createMany).not.toHaveBeenCalled();
@@ -139,7 +187,7 @@ describe('Drive Activity Service', () => {
             mockActivityQuery.mockResolvedValue({ data: { activities: [editActivity, createActivity] } });
             prisma.dailyActivity.createMany.mockResolvedValue({ count: 2 });
 
-            const result = await persistDriveActivities(mockUserId, 'token', mockDateStr);
+            const result = await persistDriveActivities(mockUserId, 'token', startTime, endTime);
 
             expect(result.count).toBe(2);
             expect(prisma.dailyActivity.createMany).toHaveBeenCalledWith(
@@ -162,7 +210,7 @@ describe('Drive Activity Service', () => {
             mockActivityQuery.mockResolvedValue({ data: { activities: [activityWithRange] } });
             prisma.dailyActivity.createMany.mockResolvedValue({ count: 1 });
 
-            await persistDriveActivities(mockUserId, 'token', mockDateStr);
+            await persistDriveActivities(mockUserId, 'token', startTime, endTime);
 
             const data = prisma.dailyActivity.createMany.mock.calls[0][0].data;
             expect(data[0].startTime).toEqual(new Date('2026-05-26T10:00:00Z'));
@@ -178,7 +226,7 @@ describe('Drive Activity Service', () => {
             mockActivityQuery.mockResolvedValue({ data: { activities: [activityWithTimestamp] } });
             prisma.dailyActivity.createMany.mockResolvedValue({ count: 1 });
 
-            await persistDriveActivities(mockUserId, 'token', mockDateStr);
+            await persistDriveActivities(mockUserId, 'token', startTime, endTime);
 
             const data = prisma.dailyActivity.createMany.mock.calls[0][0].data;
             expect(data[0].startTime).toEqual(new Date('2026-05-26T11:30:00Z'));
@@ -194,7 +242,7 @@ describe('Drive Activity Service', () => {
             mockActivityQuery.mockResolvedValue({ data: { activities: [activity] } });
             prisma.dailyActivity.createMany.mockResolvedValue({ count: 1 });
 
-            await persistDriveActivities(mockUserId, 'token', mockDateStr);
+            await persistDriveActivities(mockUserId, 'token', startTime, endTime);
 
             const data = prisma.dailyActivity.createMany.mock.calls[0][0].data;
             expect(data[0].externalId).toBe('edit_doc1_2026-05-26T10:00:00Z');
@@ -203,7 +251,7 @@ describe('Drive Activity Service', () => {
         test('Devuelve count 0 y mensaje cuando no hay actividades relevantes', async () => {
             mockActivityQuery.mockResolvedValue({ data: { activities: [] } });
 
-            const result = await persistDriveActivities(mockUserId, 'token', mockDateStr);
+            const result = await persistDriveActivities(mockUserId, 'token', startTime, endTime);
 
             expect(result).toEqual({
                 count: 0,

@@ -254,6 +254,58 @@ Los límites exactos de la Drive Activity API comparten el pool de cuota de la D
 
 ---
 
+## Endpoint interno del proyecto: `POST /api/drive/sync`
+
+Wrapper propio que consulta la Drive Activity API para una ventana de tiempo y
+persiste las actividades relevantes (`edit`/`create`, excluyendo carpetas y
+accesos directos) en `daily_activities`.
+
+### Autenticación
+
+Cadena de middlewares, en orden: `authMiddleware` (JWT) → `requireActiveUser`
+(el usuario existe y está `ACTIVE` en la BD) → `requireValidGoogleToken` (el
+refresh token de Google sigue siendo válido).
+
+### Request
+
+```
+POST /api/drive/sync
+Authorization: Bearer <jwt>
+Content-Type: application/json
+
+{
+  "startTime": "2026-05-26T00:00:00-03:00",
+  "endTime":   "2026-05-26T23:59:59-03:00"
+}
+```
+
+- `startTime` / `endTime`: instantes absolutos en ISO 8601 (con offset o `Z`).
+  Definen la ventana `[startTime, endTime)` — `endTime` es **exclusivo**.
+- La ventana llega **ya resuelta**: el endpoint no recibe `timezone`. El caller
+  es responsable de calcularla.
+
+> **A futuro (jornada laboral):** este sync lo va a disparar un **batch**, no un
+> front. El batch arma `startTime`/`endTime` a partir de la jornada laboral del
+> usuario (hora de inicio/fin + timezone, que vivirán en la BD). Mientras tanto,
+> se prueba por Postman pasando el rango a mano.
+
+### Respuestas
+
+| Código | Cuándo | Body |
+|---|---|---|
+| `200` | OK | `{ "count": <n>, "message": "..." }` |
+| `400` | Falta `startTime`/`endTime`, o ventana inválida (`startTime >= endTime` o no parseable) | `{ "error": "...", "message": "..." }` |
+| `401` | Sin JWT válido, usuario inactivo, o Google requiere reconexión | `{ "error": "...", "message": "..." }` |
+| `500` | Error inesperado (la API de Google falló, etc.) | `{ "error": "..." }` |
+
+### Idempotencia
+
+La persistencia usa `createMany({ skipDuplicates: true })` con un `externalId`
+sintético (`<actionType>_<fileId>_<timestamp>`), así que re-sincronizar la misma
+ventana no duplica filas.
+
+---
+
 ## Referencia oficial
 
 - Introducción: https://developers.google.com/workspace/drive/activity/v2

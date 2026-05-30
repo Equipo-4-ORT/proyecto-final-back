@@ -14,8 +14,9 @@ jest.mock('../../../src/shared/utils/logger', () => ({
     error: jest.fn(),
 }));
 
-// El middleware crea un singleton OAuth2Client al cargarse.
-// Exponemos mockInstance para poder controlar getAccessToken por test.
+// El middleware crea un OAuth2Client nuevo por request (buildGoogleClient).
+// Como el mock devuelve siempre la misma instancia, podemos controlar
+// getAccessToken/setCredentials desde mockInstance en todos los tests.
 jest.mock('google-auth-library', () => {
     const mockInstance = {
         setCredentials: jest.fn(),

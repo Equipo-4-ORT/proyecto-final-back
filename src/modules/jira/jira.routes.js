@@ -7,14 +7,15 @@
 
 const express = require('express');
 const authMiddleware = require('../../shared/middleware/authMiddleware');
+const requireActiveUser = require('../../shared/middleware/requireActiveUser');
 const controller = require('./jira.controller');
 
 const router = express.Router();
 
-router.get('/auth',          authMiddleware, controller.getAuthUrl);
+router.get('/auth',          authMiddleware, requireActiveUser, controller.getAuthUrl);
 router.get('/auth/callback',                controller.handleCallback);
-router.get('/status',        authMiddleware, controller.getStatus);
-router.delete('/connection', authMiddleware, controller.disconnect);
-router.post('/sync',         authMiddleware, controller.triggerSync);
+router.get('/status',        authMiddleware, requireActiveUser, controller.getStatus);
+router.delete('/connection', authMiddleware, requireActiveUser, controller.disconnect);
+router.post('/sync',         authMiddleware, requireActiveUser, controller.triggerSync);
 
 module.exports = router;
