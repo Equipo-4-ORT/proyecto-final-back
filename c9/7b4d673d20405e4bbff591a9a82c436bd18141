@@ -1,0 +1,42 @@
+src/modules/drive/drive-activity.controller.js
+  s_7f7767967efcda::t_7bed88ff57f3d7 14,17-18,36-38
+  s_7f7767967efcda::t_3635ec3c48ee22 1,6-11,13,15-16,32,35
+src/shared/middleware/requireValidGoogleToken.js
+  s_7f7767967efcda::t_5598c48c684795 6-19
+  s_7f7767967efcda::t_43007411fea1b9 50
+src/modules/drive/drive-activity.service.js
+  s_7f7767967efcda::t_58fdbec227df76 48,64-69,73
+  s_7f7767967efcda::t_7e4178de95354e 6-16
+  s_7f7767967efcda::t_e4a5bffaf47f99 27-30
+  s_7f7767967efcda::t_708961dbabc843 83-86,88,90-101
+  s_7f7767967efcda::t_c6af5b4d68e4c1 170
+tests/shared/middleware/requireValidGoogleToken.test.js
+  s_7f7767967efcda::t_29dc194547b619 17-19
+docs/drive-activity-api.md
+  s_7f7767967efcda::t_cedfd4e284f959 257-308
+tests/modules/drive/drive-activity.service.test.js
+  s_7f7767967efcda::t_be1aff49a36476 13,28,87-103,123-124,126-130,132,135-136
+  s_7f7767967efcda::t_de3c5db890fa81 6-10,114,118-122,125,131,133-134,138-143,153,170,190,213,229,245,254
+src/modules/activities/activities.routes.js
+  s_7f7767967efcda::t_6824871b4066bb 4,8
+src/modules/drive/drive-activity.routes.js
+  s_7f7767967efcda::t_5c8d78c789f580 4,9
+src/modules/jira/jira.routes.js
+  s_7f7767967efcda::t_18031f067fbfea 10,15,17-19
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "c97b4d673d20405e4bbff591a9a82c436bd18141",
+  "prompts": {},
+  "sessions": {
+    "s_7f7767967efcda": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5484eb41-5346-46a6-b0f8-f057bf2981de",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "LicFuraca <martinexequield@gmail.com>"
+    }
+  }
+}
