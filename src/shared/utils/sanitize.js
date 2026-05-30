@@ -28,7 +28,11 @@ const sanitizeForLog = (value) => String(value).replace(/[\r\n]/g, '');
  * @returns {string}
  */
 const sanitizeText = (value, maxChars) => {
-    if (value === null || value === undefined) return '';
+    // Solo `string` y `number` cuentan como "texto". Cualquier otra cosa (objeto, función,
+    // boolean, null/undefined) → ''. Esto evita un footgun real: leer una propiedad que en
+    // verdad es heredada de Object.prototype —p. ej. `item.toString`, que existe en TODO
+    // objeto— y terminar con "function toString() { [native code] }" en el resultado.
+    if (typeof value !== 'string' && typeof value !== 'number') return '';
     const str = String(value);
     // Strip control chars excepto \t \n \r — se colapsan a espacio en el paso siguiente.
     // eslint-disable-next-line no-control-regex

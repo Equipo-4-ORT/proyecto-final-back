@@ -339,6 +339,12 @@ describe('jira.mapper', () => {
             expect(sanitizeText('hola', 0)).toBe('hola');
             expect(sanitizeText('hola')).toBe('hola');
         });
+
+        test('inputs no-texto (objeto, función) → "" — evita el footgun de Object.prototype.toString', () => {
+            expect(sanitizeText({}, 60)).toBe('');
+            expect(sanitizeText(() => {}, 60)).toBe('');
+            expect(sanitizeText({}.toString, 60)).toBe('');
+        });
     });
 
     describe('_internal.extractAdfText', () => {
