@@ -5,6 +5,7 @@ const {
   deleteActivity,
   ActivityNotFoundError,
   ActivityForbiddenError,
+  InvalidTimezoneError,
 } = require('./activities.service');
 const logger = require('../../shared/utils/logger');
 
@@ -17,10 +18,23 @@ const handleKnownErrors = (res, error) => {
 };
 
 const getActivities = async (req, res) => {
+  const { date, timezone, source } = req.query;
+
+  if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return res.status(400).json({ error: 'Bad Request', message: 'date debe tener formato YYYY-MM-DD' });
+  }
+
+  if (date && !timezone) {
+    return res.status(400).json({ error: 'Bad Request', message: 'timezone es requerido cuando se filtra por date' });
+  }
+
   try {
-    const activities = await listActivities(req.user.id);
+    const activities = await listActivities(req.user.id, { date, timezone, source });
     return res.status(200).json(activities);
   } catch (error) {
+    if (error instanceof InvalidTimezoneError) {
+      return res.status(400).json({ error: error.name, message: error.message });
+    }
     logger.error('Error al listar actividades', { error });
     return res.status(500).json({ error: 'Internal Server Error', message: 'No se pudieron obtener las actividades' });
   }

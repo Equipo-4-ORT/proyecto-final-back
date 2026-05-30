@@ -13,8 +13,10 @@ const {
   createActivity,
   updateActivity,
   deleteActivity,
+  dayToUTCRange,
   ActivityNotFoundError,
   ActivityForbiddenError,
+  InvalidTimezoneError,
 } = require('../../../src/modules/activities/activities.service');
 const prisma = require('../../../src/shared/database/prisma');
 
@@ -38,8 +40,29 @@ beforeEach(() => {
   jest.clearAllMocks();
 });
 
+describe('dayToUTCRange', () => {
+  test('convierte una fecha y timezone válidos al rango UTC correcto', () => {
+    // América/Argentina/Buenos_Aires = UTC-3 (sin horario de verano)
+    const range = dayToUTCRange('2025-05-24', 'America/Argentina/Buenos_Aires');
+
+    expect(range.gte).toEqual(new Date('2025-05-24T03:00:00.000Z'));
+    expect(range.lt).toEqual(new Date('2025-05-25T03:00:00.000Z'));
+  });
+
+  test('convierte correctamente para UTC+0', () => {
+    const range = dayToUTCRange('2025-05-24', 'UTC');
+
+    expect(range.gte).toEqual(new Date('2025-05-24T00:00:00.000Z'));
+    expect(range.lt).toEqual(new Date('2025-05-25T00:00:00.000Z'));
+  });
+
+  test('lanza InvalidTimezoneError si el timezone no es un identificador IANA válido', () => {
+    expect(() => dayToUTCRange('2025-05-24', 'Zona/Invalida')).toThrow(InvalidTimezoneError);
+  });
+});
+
 describe('listActivities', () => {
-  test('devuelve las actividades del usuario', async () => {
+  test('devuelve las actividades del usuario sin filtros', async () => {
     prisma.dailyActivity.findMany.mockResolvedValue([MOCK_ACTIVITY]);
 
     const result = await listActivities('user-id-1');
@@ -49,6 +72,58 @@ describe('listActivities', () => {
       where: { userId: 'user-id-1' },
       orderBy: { startTime: 'desc' },
     });
+  });
+
+  test('filtra por source cuando se provee', async () => {
+    prisma.dailyActivity.findMany.mockResolvedValue([]);
+
+    await listActivities('user-id-1', { source: 'drive' });
+
+    expect(prisma.dailyActivity.findMany).toHaveBeenCalledWith({
+      where: { userId: 'user-id-1', source: 'drive' },
+      orderBy: { startTime: 'desc' },
+    });
+  });
+
+  test('filtra por rango UTC cuando se provee date y timezone', async () => {
+    prisma.dailyActivity.findMany.mockResolvedValue([]);
+
+    await listActivities('user-id-1', { date: '2025-05-24', timezone: 'America/Argentina/Buenos_Aires' });
+
+    expect(prisma.dailyActivity.findMany).toHaveBeenCalledWith({
+      where: {
+        userId: 'user-id-1',
+        startTime: {
+          gte: new Date('2025-05-24T03:00:00.000Z'),
+          lt:  new Date('2025-05-25T03:00:00.000Z'),
+        },
+      },
+      orderBy: { startTime: 'desc' },
+    });
+  });
+
+  test('combina source y filtro de fecha cuando se proveen ambos', async () => {
+    prisma.dailyActivity.findMany.mockResolvedValue([]);
+
+    await listActivities('user-id-1', { date: '2025-05-24', timezone: 'UTC', source: 'drive' });
+
+    expect(prisma.dailyActivity.findMany).toHaveBeenCalledWith({
+      where: {
+        userId: 'user-id-1',
+        source: 'drive',
+        startTime: {
+          gte: new Date('2025-05-24T00:00:00.000Z'),
+          lt:  new Date('2025-05-25T00:00:00.000Z'),
+        },
+      },
+      orderBy: { startTime: 'desc' },
+    });
+  });
+
+  test('propaga InvalidTimezoneError si el timezone es inválido', async () => {
+    await expect(
+      listActivities('user-id-1', { date: '2025-05-24', timezone: 'Zona/Invalida' })
+    ).rejects.toThrow(InvalidTimezoneError);
   });
 });
 
