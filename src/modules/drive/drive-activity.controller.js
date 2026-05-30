@@ -1,6 +1,5 @@
 const { persistDriveActivities, InvalidWindowError } = require('./drive-activity.service');
-const prisma = require('../../shared/database/prisma');
-const { decrypt } = require('../../shared/utils/crypto');
+const { getDecryptedRefreshToken } = require('../../shared/utils/refreshToken');
 const logger = require('../../shared/utils/logger');
 
 // El sync recibe la ventana [startTime, endTime) ya resuelta a instantes
@@ -22,16 +21,11 @@ const syncDriveActivities = async (req, res) => {
     try {
         const userId = req.user.id;
 
-        const user = await prisma.user.findUnique({
-            where: { id: userId },
-            select: { refreshToken: true },
-        });
-
-        if (!user || !user.refreshToken) {
+        const decryptedToken = await getDecryptedRefreshToken(userId);
+        if (!decryptedToken) {
             return res.status(400).json({ error: 'Usuario no encontrado o sin token de actualización' });
         }
 
-        const decryptedToken = decrypt(user.refreshToken);
         const result = await persistDriveActivities(userId, decryptedToken, startTime, endTime);
         res.status(200).json(result);
     } catch (error) {
