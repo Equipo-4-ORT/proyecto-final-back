@@ -37,7 +37,8 @@
     "jsonwebtoken": "^9.0.3",
     "luxon": "^3.7.2",
     "openai": "^6.39.0",
-    "winston": "^3.19.0"
+    "winston": "^3.19.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
