@@ -1,0 +1,45 @@
+{
+  "kind": "calendar#event",
+  "id": "event_mock_meet_123",
+  "status": "confirmed",
+  "summary": "Sincronización Técnica - AutoLog",
+  "description": "Reunión de alineación de arquitectura de backend.",
+  "start": {
+    "dateTime": "2026-05-25T10:00:00-03:00",
+    "timeZone": "America/Argentina/Buenos_Aires"
+  },
+  "end": {
+    "dateTime": "2026-05-25T11:00:00-03:00",
+    "timeZone": "America/Argentina/Buenos_Aires"
+  },
+  "organizer": {
+    "email": "felipe.valenzuela@ort.edu.ar",
+    "self": true
+  },
+  "attendees": [
+    {
+      "email": "mateo.backend@ort.edu.ar",
+      "responseStatus": "accepted"
+    },
+    {
+      "email": "valentina.front@ort.edu.ar",
+      "responseStatus": "needsAction"
+    }
+  ],
+  "hangoutLink": "https://meet.google.com/abc-defg-hij",
+  "conferenceData": {
+    "entryPoints": [
+      {
+        "entryPointType": "video",
+        "uri": "https://meet.google.com/abc-defg-hij",
+        "label": "meet.google.com/abc-defg-hij"
+      }
+    ],
+    "conferenceSolution": {
+      "key": {
+        "type": "hangoutsMeet"
+      },
+      "name": "Google Meet"
+    }
+  }
+}

@@ -31,6 +31,9 @@ app.use('/api/activities', activitiesRoutes);
 const driveActivityRoutes = require('./modules/drive/drive-activity.routes');
 app.use('/api/drive', driveActivityRoutes);
 
+const calendarRoutes = require('./modules/calendar/calendar.routes');
+app.use('/api/calendar', calendarRoutes);
+
 app.get('/health', (req, res) => {
   res.status(200).json({
     status: 'OK',
