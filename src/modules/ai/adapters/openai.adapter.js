@@ -1,5 +1,7 @@
 const OpenAI = require('openai');
 const AIAdapter = require('../ai.interface');
+const { sanitizeForPrompt, sanitizeObjectForExcel } = require('../ai.sanitize');
+const { validateAIModuleOutput, validateUserContext } = require('../ai.schemas');
 
 /**
  * Adapter de OpenAI. Implementa la interfaz AIAdapter usando la API
@@ -51,9 +53,6 @@ class OpenAIAdapter extends AIAdapter {
      * @returns {Promise<AIModuleOutput>} Resumen estructurado
      */
     async generateSummary(activities, userContext) {
-        const { sanitizeForPrompt, sanitizeObjectForExcel } = require('../ai.sanitize');
-        const { validateAIModuleOutput } = require('../ai.schemas');
-
         if (!activities || !Array.isArray(activities) || activities.length === 0) {
             throw new Error('Activities array cannot be empty', { cause: new Error('Invalid input') });
         }
@@ -61,6 +60,10 @@ class OpenAIAdapter extends AIAdapter {
         if (!userContext) {
             throw new Error('UserContext is required', { cause: new Error('Invalid input') });
         }
+
+        // Valida el shape del contexto (name/role strings no vacíos, date
+        // string|Date). Lanza error tipado si no cumple.
+        const validatedContext = validateUserContext(userContext);
 
         const sanitizedActivities = activities.map((activity) => ({
             ...activity,
@@ -106,9 +109,9 @@ Expected JSON structure:
   "totalHours": <number of total hours worked>
 }`;
 
-        const userPrompt = `User: ${sanitizeForPrompt(userContext.name)}
-Role: ${sanitizeForPrompt(userContext.role)}
-Date: ${userContext.date instanceof Date ? userContext.date.toISOString().split('T')[0] : userContext.date}
+        const userPrompt = `User: ${sanitizeForPrompt(validatedContext.name)}
+Role: ${sanitizeForPrompt(validatedContext.role)}
+Date: ${validatedContext.date instanceof Date ? validatedContext.date.toISOString().split('T')[0] : validatedContext.date}
 
 Activities:
 ${JSON.stringify(sanitizedActivities, null, 2)}
@@ -118,8 +121,13 @@ Please generate the daily report summary.`;
         try {
             const response = await this.client.chat.completions.create({
                 model: 'gpt-4o-mini',
-                max_tokens: 2048,
-                temperature: 0.7,
+                // temperature 0 = salida determinística (clave para extracción
+                // estructurada a JSON; ver nota al final del resumen).
+                temperature: 0,
+                // Fuerza a la API a devolver un objeto JSON válido y parseable.
+                // Requiere que la palabra "JSON" aparezca en algún message
+                // (está en el system prompt).
+                response_format: { type: 'json_object' },
                 messages: [
                     {
                         role: 'system',
@@ -138,9 +146,14 @@ Please generate the daily report summary.`;
 
             const responseText = response.choices[0].message.content;
 
-            // Intentar extraer JSON si está envuelto en markdown
-            let jsonMatch = responseText.match(/```json\s*([\s\S]*?)\s*```/);
-            let jsonStr = jsonMatch ? jsonMatch[1] : responseText;
+            if (!responseText) {
+                throw new Error('Empty content from OpenAI', { cause: new Error('API response validation failed') });
+            }
+
+            // Con response_format json_object la respuesta ya es JSON puro,
+            // pero dejamos el fallback por si viene envuelto en markdown.
+            const jsonMatch = responseText.match(/```json\s*([\s\S]*?)\s*```/);
+            const jsonStr = jsonMatch ? jsonMatch[1] : responseText;
 
             let parsedOutput;
             try {
@@ -163,7 +176,7 @@ Please generate the daily report summary.`;
                 throw new Error(`OpenAI authentication failed: Invalid API key`, { cause: error });
             }
 
-            if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
+            if (error.code === 'ECONNABORTED' || (error.message && error.message.includes('timeout'))) {
                 throw new Error(`OpenAI request timeout: ${error.message}`, { cause: error });
             }
 

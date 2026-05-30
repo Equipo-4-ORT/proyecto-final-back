@@ -6,6 +6,16 @@
 const z = require('zod');
 
 /**
+ * Schema para validar el contexto de usuario que se le pasa al adapter.
+ * `date` puede llegar como Date o como string (ISO o YYYY-MM-DD).
+ */
+const UserContextSchema = z.object({
+    name: z.string().min(1, 'name no puede estar vacío'),
+    role: z.string().min(1, 'role no puede estar vacío'),
+    date: z.union([z.string().min(1, 'date no puede estar vacío'), z.date()]),
+});
+
+/**
  * Schema para validar un ActivityRow (fila del Excel).
  * Cada fila es un bloque horario contiguo.
  */
@@ -33,22 +43,46 @@ const AIModuleOutputSchema = z.object({
 });
 
 /**
+ * Formatea los issues de un ZodError en un mensaje legible.
+ * Usa `.issues` (propiedad canónica en Zod 4; en Zod 3 también existe).
+ * @param {import('zod').ZodError} error
+ * @returns {string}
+ */
+const formatIssues = (error) =>
+    error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('; ');
+
+/**
  * Valida que un objeto cumple el schema AIModuleOutput.
  * @param {*} data - Datos a validar
  * @returns {Object} Objeto validado
  * @throws {Error} Si la validación falla
  */
 const validateAIModuleOutput = (data) => {
-    try {
-        return AIModuleOutputSchema.parse(data);
-    } catch (error) {
-        const messages = error.errors.map((e) => `${e.path.join('.')}: ${e.message}`);
-        throw new Error(`AIModuleOutput validation failed: ${messages.join('; ')}`, { cause: error });
-    }
+    const result = AIModuleOutputSchema.safeParse(data);
+    if (result.success) return result.data;
+    throw new Error(`AIModuleOutput validation failed: ${formatIssues(result.error)}`, {
+        cause: result.error,
+    });
+};
+
+/**
+ * Valida que el contexto de usuario cumple el schema UserContext.
+ * @param {*} data - Datos a validar
+ * @returns {Object} Contexto validado
+ * @throws {Error} Si la validación falla
+ */
+const validateUserContext = (data) => {
+    const result = UserContextSchema.safeParse(data);
+    if (result.success) return result.data;
+    throw new Error(`UserContext validation failed: ${formatIssues(result.error)}`, {
+        cause: result.error,
+    });
 };
 
 module.exports = {
+    UserContextSchema,
     ActivityRowSchema,
     AIModuleOutputSchema,
     validateAIModuleOutput,
+    validateUserContext,
 };

@@ -1,14 +1,24 @@
 /**
  * Sanitización de strings para prevenir formula injection en Excel
- * y prompt injection en llamadas a la IA.
+ * y normalizar el contenido de usuario antes de mandarlo a la IA.
  *
  * Formula injection: Si un string comienza con =, +, -, o @,
  * Excel lo interpreta como fórmula. Escapamos con apóstrofo.
  *
- * Prompt injection: Si el contenido del usuario contiene instrucciones
- * (ej: "Ignore previous instructions..."), puede manipular la IA.
- * Sanitizamos removiendo caracteres peligrosos.
+ * Prompt injection: la mitigación real NO vive acá. Se logra con la
+ * separación de roles system/user (instrucciones inmutables en el system
+ * prompt, datos del usuario en el user prompt) más la validación del
+ * output contra el schema AIModuleOutput. `sanitizeForPrompt` sólo
+ * normaliza el texto removiendo caracteres de control — NO neutraliza
+ * frases tipo "Ignore previous instructions"; no le atribuyas esa
+ * protección.
  */
+
+// Caracteres de control C0 (excepto \t=09, \n=0A, \r=0D), DEL (7F) y C1
+// (80-9F). Se remueven porque pueden romper el formato del prompt o de las
+// celdas, pero se preserva todo el Unicode imprimible (acentos, ñ, etc.).
+// eslint-disable-next-line no-control-regex
+const CONTROL_CHARS = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/g;
 
 /**
  * Sanitiza un string para prevenir formula injection en Excel.
@@ -23,23 +33,18 @@ const sanitizeForExcel = (str) => {
 };
 
 /**
- * Sanitiza un string para prevenir prompt injection.
- * Remueve caracteres de control y limita caracteres especiales peligrosos.
+ * Normaliza un string antes de incluirlo en un prompt: remueve caracteres
+ * de control (C0/C1 y DEL) que podrían romper el formato del mensaje, pero
+ * conserva todo el texto imprimible, incluyendo acentos, ñ y demás
+ * caracteres Unicode (clave para contenido en español).
+ *
+ * Importante: esto NO previene prompt injection (ver header del archivo).
  * @param {string} str - String a sanitizar
  * @returns {string} String sanitizado
  */
 const sanitizeForPrompt = (str) => {
     if (!str || typeof str !== 'string') return str;
-    // Remover caracteres de control usando codePointAt instead of regex
-    let sanitized = '';
-    for (let i = 0; i < str.length; i++) {
-        const code = str.charCodeAt(i);
-        // Permitir: printable ASCII (32-126), tab (9), newline (10), carriage return (13)
-        if ((code >= 32 && code <= 126) || code === 9 || code === 10 || code === 13) {
-            sanitized += str[i];
-        }
-    }
-    return sanitized.trim();
+    return str.replace(CONTROL_CHARS, '').trim();
 };
 
 /**
