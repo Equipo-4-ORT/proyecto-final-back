@@ -179,15 +179,38 @@ describe('Calendar Service', () => {
 
       // Evento con Meet
       expect(dataPassedToPrisma[0].activityType).toBe('meeting');
-      expect(dataPassedToPrisma[0].title).toBe('Sprint Planning');
+      // El título ahora vive en metadata.title (es lo que lee el front), no en la columna.
+      expect(dataPassedToPrisma[0].metadata.title).toBe('Sprint Planning');
       expect(dataPassedToPrisma[0].externalId).toBe('10');
       expect(dataPassedToPrisma[0].metadata.link).toBe('https://meet.google.com/abc');
       expect(dataPassedToPrisma[0].metadata.organizer).toBe('scrum@test.com');
 
       // Evento normal
       expect(dataPassedToPrisma[1].activityType).toBe('event');
-      expect(dataPassedToPrisma[1].title).toBe('Charla presencial');
+      expect(dataPassedToPrisma[1].metadata.title).toBe('Charla presencial');
       expect(dataPassedToPrisma[1].metadata.link).toBeNull();
+    });
+
+    test('sanea + trunca el summary (control chars y longitud) antes de persistir', async () => {
+      // El summary lo controla cualquiera que pueda invitar al usuario: input no confiable.
+      const evilEvent = {
+        id: 'evil-1',
+        summary: `Reu\x00\x07nión${'B'.repeat(5000)}`,
+        start: { dateTime: '2026-05-26T09:00:00Z' },
+        end: { dateTime: '2026-05-26T10:00:00Z' },
+        organizer: { email: 'org@test.com', self: true },
+        attendees: [{ email: 'org@test.com', self: true, responseStatus: 'accepted' }],
+      };
+      mockEventsList.mockResolvedValue({ data: { items: [evilEvent] } });
+      prisma.dailyActivity.createMany.mockResolvedValue({ count: 1 });
+
+      await persistCalendarActivities(mockUserId, 'token', mockDateStr);
+
+      const saved = prisma.dailyActivity.createMany.mock.calls[0][0].data[0];
+      // eslint-disable-next-line no-control-regex
+      expect(saved.metadata.title).not.toMatch(/[\x00-\x08\x0E-\x1F\x7F]/);
+      expect(saved.metadata.title.length).toBeLessThanOrEqual(200);
+      expect(saved.metadata.title.startsWith('Reunión')).toBe(true);
     });
   });
 });

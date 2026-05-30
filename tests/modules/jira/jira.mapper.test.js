@@ -144,6 +144,22 @@ describe('jira.mapper', () => {
         test('issue nulo → todo null', () => {
             expect(mapper.issueMetadata(null)).toEqual({ issue_key: null, summary: null, status: null, project_key: null });
         });
+
+        test('summary/status crudos se sanean (control chars) y truncan antes de la JSON column', () => {
+            const evil = {
+                key: 'P-1',
+                fields: {
+                    summary: `Hola\x00\x07mundo${'A'.repeat(5000)}`,
+                    status: { name: 'In\x1bProgress' },
+                    project: { key: 'PROJ' },
+                },
+            };
+            const meta = mapper.issueMetadata(evil);
+            // eslint-disable-next-line no-control-regex
+            expect(meta.summary).not.toMatch(/[\x00-\x08\x0E-\x1F\x7F]/);
+            expect(meta.status).toBe('InProgress');
+            expect(meta.summary.length).toBeLessThanOrEqual(mapper._internal.MAX_SUMMARY_CHARS);
+        });
     });
 
     describe('robustez de filtros', () => {

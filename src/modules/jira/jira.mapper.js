@@ -16,12 +16,13 @@
  */
 
 const { ACTIVITY_SOURCE, ACTIVITY_TYPE } = require('./jira.constants');
+const { sanitizeText, MAX_TITLE_CHARS, MAX_DESCRIPTION_CHARS } = require('../../shared/utils/sanitize');
 
 // —— Topes para inputs de Atlassian (defensa en profundidad) ——
 // `summary` típicamente es <255 chars en Jira, pero un valor adversarial podría ser
 // arbitrariamente grande. Truncamos antes de meterlo en la JSON column.
-const MAX_TITLE_CHARS = 200;
-const MAX_DESCRIPTION_CHARS = 500;
+// `MAX_TITLE_CHARS` / `MAX_DESCRIPTION_CHARS` y el propio `sanitizeText` viven en el util
+// compartido (`shared/utils/sanitize`), que también consumen Drive y Calendar.
 const MAX_SUMMARY_CHARS = 120;
 const MAX_STATUS_NAME_CHARS = 60;
 
@@ -30,30 +31,6 @@ const MAX_STATUS_NAME_CHARS = 60;
 // es no confiable por default — Jira no es excepción).
 const ADF_MAX_NODES = 1000;
 const ADF_MAX_DEPTH = 20;
-
-/**
- * Normaliza texto que viene de Jira antes de persistirlo / exponerlo:
- *  - elimina control chars (0x00–0x1F, 0x7F) excepto whitespace común,
- *  - colapsa whitespace a un solo espacio,
- *  - trim,
- *  - trunca a `maxChars` (agrega ellipsis ASCII '...' si recorta).
- *
- * No escapa HTML: el contrato es que el consumidor (front React, AI) recibe
- * texto plano y lo renderiza por mecanismos que ya auto-escapan. Si en el
- * futuro alguien lo emite directo en HTML, debe escaparlo en ese punto.
- */
-const sanitizeText = (value, maxChars) => {
-    if (value === null || value === undefined) return '';
-    const str = String(value);
-    // Strip control chars excepto \t \n \r — se colapsan a espacio en el paso siguiente.
-    // eslint-disable-next-line no-control-regex
-    const stripped = str.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
-    const collapsed = stripped.replace(/\s+/g, ' ').trim();
-    if (!Number.isInteger(maxChars) || maxChars <= 0 || collapsed.length <= maxChars) {
-        return collapsed;
-    }
-    return `${collapsed.slice(0, Math.max(0, maxChars - 3))}...`;
-};
 
 /**
  * Extrae el texto plano de un documento Atlassian Document Format (ADF).
@@ -157,10 +134,14 @@ const isWithinWindow = (value, dateStart, dateEnd) => {
 };
 
 const issueMetadata = (issue) => ({
-    issue_key: issue?.key ?? null,
-    summary: issue?.fields?.summary ?? null,
-    status: issue?.fields?.status?.name ?? null,
-    project_key: issue?.fields?.project?.key ?? null,
+    // Saneamos + truncamos también los campos espejo de Jira, no solo `title`/`description`.
+    // Antes `summary` y `status` se persistían crudos en la JSON column: dejaban pasar
+    // control chars y strings adversariales gigantes, contradiciendo el contrato del módulo.
+    // `|| null` preserva el comportamiento previo: si tras sanear queda vacío, vuelve a null.
+    issue_key: sanitizeText(issue?.key, 40) || null,
+    summary: sanitizeText(issue?.fields?.summary, MAX_SUMMARY_CHARS) || null,
+    status: sanitizeText(issue?.fields?.status?.name, MAX_STATUS_NAME_CHARS) || null,
+    project_key: sanitizeText(issue?.fields?.project?.key, 40) || null,
 });
 
 const isMine = (author, myAccountId) => Boolean(author) && author.accountId === myAccountId;
@@ -296,6 +277,7 @@ module.exports = {
         buildActivityTitle,
         formatDuration,
         MAX_TITLE_CHARS,
+        MAX_SUMMARY_CHARS,
         MAX_DESCRIPTION_CHARS,
         ADF_MAX_NODES,
         ADF_MAX_DEPTH,

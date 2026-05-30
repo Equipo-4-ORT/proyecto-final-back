@@ -2,6 +2,7 @@ const { google } = require('googleapis');
 const { getAuthenticatedGoogleClient } = require('../google/google.service');
 const prisma = require('../../shared/database/prisma');
 const logger = require('../../shared/utils/logger');
+const { sanitizeText, MAX_TITLE_CHARS } = require('../../shared/utils/sanitize');
 
 /**
  * Error tipado para una ventana [startTime, endTime) inválida (fechas no
@@ -145,7 +146,9 @@ const persistDriveActivities = async (userId, refreshToken, startTime, endTime) 
             startTime,
             endTime,
             metadata: {
-                title: target.title || null,
+                // Saneamos + truncamos el nombre del archivo (fuente externa: Drive, incl.
+                // archivos compartidos por terceros) antes de persistirlo en la JSON column.
+                title: sanitizeText(target.title, MAX_TITLE_CHARS) || null,
                 fileId,
                 mimeType: mimeType || null,
             },

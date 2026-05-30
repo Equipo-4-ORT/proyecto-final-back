@@ -2,6 +2,7 @@ const { google } = require('googleapis');
 const { getAuthenticatedGoogleClient } = require('../google/google.service');
 const prisma = require('../../shared/database/prisma');
 const logger = require('../../shared/utils/logger');
+const { sanitizeText, MAX_TITLE_CHARS } = require('../../shared/utils/sanitize');
 
 const getCalendarEventsForDay = async (refreshToken, timeMin, timeMax) => {
   try {
@@ -57,13 +58,17 @@ const persistCalendarActivities = async (userId, refreshToken, dateStr) => {
 
     activitiesToSave.push({
       userId: userId,
-      title: event.summary || 'Sin título',
       source: 'calendar',
       activityType: isMeet ? 'meeting' : 'event',
       externalId: event.id, // Usamos el ID del evento para evitar duplicados futuros
       startTime: new Date(event.start.dateTime),
       endTime: new Date(event.end.dateTime),
       metadata: {
+        // El front lee `metadata.title` para todas las fuentes (Jira/Drive/Calendar);
+        // antes el summary iba a la columna `title`, que el front no consume y por eso no
+        // se mostraba. Saneamos + truncamos: `event.summary` lo controla cualquiera que
+        // pueda invitar al usuario, así que es input no confiable.
+        title: sanitizeText(event.summary, MAX_TITLE_CHARS) || 'Sin título',
         link: event.hangoutLink || null,
         organizer: event.organizer?.email || null,
       },
