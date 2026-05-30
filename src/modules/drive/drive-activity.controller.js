@@ -13,7 +13,10 @@ const syncDriveActivities = async (req, res) => {
     const { startTime, endTime } = req.body;
 
     if (!startTime || !endTime) {
-        return res.status(400).json({ error: 'startTime y endTime son requeridos (ISO 8601)' });
+        return res.status(400).json({
+            error: 'Bad Request',
+            message: 'startTime y endTime son requeridos (ISO 8601)',
+        });
     }
 
     try {
