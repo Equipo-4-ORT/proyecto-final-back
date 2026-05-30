@@ -1,0 +1,35 @@
+src/modules/ai/ai.interface.js
+  s_1b60ac0c9895b7::t_602b329f07d29f 80-81
+tests/modules/ai/adapters/openai.adapter.test.js
+  s_1b60ac0c9895b7::t_5e671edde429dd 4-53,100,109-110,112-151,153-154,156-160,163-189,193-196,198-203,205-210,212-213,215,219-222,224-230,232-235
+src/modules/ai/ai.schemas.js
+  s_1b60ac0c9895b7::t_ac9a7b799510dc 9-17,45-53,61-79,83,87-88
+src/modules/ai/adapters/openai.adapter.js
+  s_1b60ac0c9895b7::t_c49da64686c196 112-114,124-130,149-156
+  s_1b60ac0c9895b7::t_b21f2333656dd9 64-66
+  s_1b60ac0c9895b7::t_b910f24e2f275f 3-4
+  s_1b60ac0c9895b7::t_d53367a8565b85 179
+src/modules/ai/ai.sanitize.js
+  s_1b60ac0c9895b7::t_0d683d24952477 3,8-14
+  s_1b60ac0c9895b7::t_dfe1b063ef2950 17-22,36-41,47,80
+tests/modules/ai/ai.schemas.test.js
+  s_1b60ac0c9895b7::t_ae74aab24dddfe 1-80
+tests/modules/ai/ai.sanitize.test.js
+  s_1b60ac0c9895b7::t_18b94652c9eb4f 1-74
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a648f77e6b8d026118dfff9be1760c7432031a1f",
+  "prompts": {},
+  "sessions": {
+    "s_1b60ac0c9895b7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e622f8b6-04d9-4860-bbd7-595aca706065",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "LicFuraca <martinexequield@gmail.com>"
+    }
+  }
+}
