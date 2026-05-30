@@ -76,7 +76,7 @@ class AIAdapter {
      * const output = await adapter.generateSummary(activities, userContext);
      * // output = { daySummary: "...", rows: [...], totalHours: 8 }
      */
-    async generateSummary(_activities, _userContext) {
+    async generateSummary() {
         throw new AbstractMethodError('generateSummary');
     }
 }
