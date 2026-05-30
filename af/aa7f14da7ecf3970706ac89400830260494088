@@ -1,0 +1,36 @@
+tests/modules/jira/jira.mapper.test.js
+  s_ec407e2b522956::t_a2f58fdd377df4 147-162
+src/modules/drive/drive-activity.service.js
+  s_ec407e2b522956::t_9998c06293ce34 149-151
+  s_ec407e2b522956::t_22bfaf338743d4 5
+tests/modules/calendar/calendar.service.test.js
+  s_ec407e2b522956::t_9cdd1800273a04 193-214
+  s_ec407e2b522956::t_e57c2dfb144bc9 182-183,190
+src/modules/calendar/calendar.service.js
+  s_ec407e2b522956::t_70ffa3a3c893ea 67-71
+  s_ec407e2b522956::t_aacfb385d43808 5
+tests/modules/drive/drive-activity.service.test.js
+  s_ec407e2b522956::t_05f1545a626ce7 204-222
+src/modules/jira/jira.mapper.js
+  s_ec407e2b522956::t_0d29213a6e88b3 19,24-25
+  s_ec407e2b522956::t_e2684089463537 137-144
+  s_ec407e2b522956::t_47cc9a4c386f73 280
+src/shared/utils/sanitize.js
+  s_ec407e2b522956::t_9fc0234a3939e6 1-12,15-43
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "afaa7f14da7ecf3970706ac89400830260494088",
+  "prompts": {},
+  "sessions": {
+    "s_ec407e2b522956": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ec792e3b-eb76-438c-9580-3dd717bb095d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "LicFuraca <martinexequield@gmail.com>"
+    }
+  }
+}
