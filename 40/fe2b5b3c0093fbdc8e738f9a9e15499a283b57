@@ -1,0 +1,14 @@
+src/modules/google/google.service.js
+  h_8af40fd7a5881e 24,43,47-51,62,66
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "40fe2b5b3c0093fbdc8e738f9a9e15499a283b57",
+  "prompts": {},
+  "humans": {
+    "h_8af40fd7a5881e": {
+      "author": "LicFuraca <martinexequield@gmail.com>"
+    }
+  }
+}
