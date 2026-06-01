@@ -59,8 +59,9 @@ describe('jira.mapper', () => {
                 action_type: 'comment',
                 comment_id: 'c1',
             });
+            // Acción puntual (start === end): se aplica el mínimo de 5 minutos.
             expect(result[0].startTime).toEqual(new Date('2026-05-10T10:00:00.000Z'));
-            expect(result[0].endTime).toEqual(new Date('2026-05-10T10:00:00.000Z'));
+            expect(result[0].endTime).toEqual(new Date('2026-05-10T10:05:00.000Z'));
         });
 
         test('descarta comentarios de otro autor o fuera de la ventana', () => {
@@ -81,7 +82,7 @@ describe('jira.mapper', () => {
     });
 
     describe('mapChangelogToActivities', () => {
-        test('happy path: 2 transiciones de estado mías dentro de la ventana', () => {
+        test('happy path: 2 transiciones de estado mías dentro de la ventana (ignora campos no trackeados)', () => {
             const histories = [
                 {
                     id: 'h1',
@@ -94,7 +95,7 @@ describe('jira.mapper', () => {
                     author: { accountId: ME },
                     created: '2026-05-10T16:00:00.000Z',
                     items: [
-                        { field: 'assignee', fromString: 'x', toString: 'y' }, // no es status
+                        { field: 'labels', fromString: 'x', toString: 'y' }, // no trackeado → se ignora
                         { field: 'status', fromString: 'In Progress', toString: 'Done' },
                     ],
                 },
@@ -106,11 +107,40 @@ describe('jira.mapper', () => {
             expect(result[1].metadata).toMatchObject({ from_status: 'In Progress', to_status: 'Done' });
         });
 
+        test('captura (re)asignaciones como activityType "assignment"', () => {
+            const histories = [{
+                id: 'h1', author: { accountId: ME }, created: '2026-05-10T10:00:00.000Z',
+                items: [{ field: 'assignee', fromString: 'Juan', toString: 'Ana' }],
+            }];
+            const [activity] = mapper.mapChangelogToActivities('u', issue, histories, ME, WINDOW_START, WINDOW_END);
+            expect(activity).toMatchObject({ activityType: 'assignment', externalId: 'PROJ-42:assignment:2026-05-10T10:00:00.000Z' });
+            expect(activity.metadata).toMatchObject({ from_assignee: 'Juan', to_assignee: 'Ana', changelog_id: 'h1' });
+        });
+
+        test('captura ediciones de descripción/título como "edit", discriminadas por campo en el externalId', () => {
+            const histories = [{
+                id: 'h1', author: { accountId: ME }, created: '2026-05-10T10:00:00.000Z',
+                items: [
+                    { field: 'description', fromString: 'viejo', toString: 'nuevo' },
+                    { field: 'summary', fromString: 'Título viejo', toString: 'Título nuevo' },
+                ],
+            }];
+            const result = mapper.mapChangelogToActivities('u', issue, histories, ME, WINDOW_START, WINDOW_END);
+            expect(result).toHaveLength(2);
+            // Mismo timestamp + mismo tipo EDIT → el campo evita la colisión de externalId.
+            expect(result.map((a) => a.externalId)).toEqual([
+                'PROJ-42:edit:description:2026-05-10T10:00:00.000Z',
+                'PROJ-42:edit:summary:2026-05-10T10:00:00.000Z',
+            ]);
+            expect(result[0]).toMatchObject({ activityType: 'edit' });
+            expect(result[0].metadata).toMatchObject({ field: 'description', from: 'viejo', to: 'nuevo' });
+        });
+
         test('descarta entries fuera de [dateStart, dateEnd) o de otro autor', () => {
             const histories = [
                 { id: 'h1', author: { accountId: ME }, created: '2026-05-10T08:00:00.000Z', items: [{ field: 'status', fromString: 'a', toString: 'b' }] },
                 { id: 'h2', author: { accountId: OTHER }, created: '2026-05-10T10:00:00.000Z', items: [{ field: 'status', fromString: 'a', toString: 'b' }] },
-                { id: 'h3', author: { accountId: ME }, created: '2026-05-10T10:00:00.000Z', items: [{ field: 'description', fromString: 'a', toString: 'b' }] }, // no status
+                { id: 'h3', author: { accountId: ME }, created: '2026-05-10T10:00:00.000Z', items: [{ field: 'labels', fromString: 'a', toString: 'b' }] }, // campo no trackeado
             ];
             expect(mapper.mapChangelogToActivities('user-1', issue, histories, ME, WINDOW_START, WINDOW_END)).toEqual([]);
         });
@@ -129,10 +159,63 @@ describe('jira.mapper', () => {
             expect(result[0].metadata).toMatchObject({ time_spent_seconds: 3600, worklog_id: 'w1' });
         });
 
-        test('worklog sin timeSpentSeconds → endTime = startTime', () => {
+        test('worklog sin timeSpentSeconds → aplica el mínimo de 5 minutos (duración 0 ≤ 60s)', () => {
             const worklogs = [{ id: 'w1', author: { accountId: ME }, started: '2026-05-10T14:00:00.000Z' }];
             const result = mapper.mapWorklogsToActivities('user-1', issue, worklogs, ME, WINDOW_START, WINDOW_END);
-            expect(result[0].endTime).toEqual(new Date('2026-05-10T14:00:00.000Z'));
+            expect(result[0].startTime).toEqual(new Date('2026-05-10T14:00:00.000Z'));
+            expect(result[0].endTime).toEqual(new Date('2026-05-10T14:05:00.000Z'));
+        });
+
+        test('worklog con timeSpentSeconds ≤ 60s → aplica el mínimo de 5 minutos', () => {
+            const worklogs = [
+                { id: 'w1', author: { accountId: ME }, started: '2026-05-10T14:00:00.000Z', timeSpentSeconds: 60 },
+            ];
+            const result = mapper.mapWorklogsToActivities('user-1', issue, worklogs, ME, WINDOW_START, WINDOW_END);
+            expect(result[0].startTime).toEqual(new Date('2026-05-10T14:00:00.000Z'));
+            expect(result[0].endTime).toEqual(new Date('2026-05-10T14:05:00.000Z'));
+            // El metadata conserva el timeSpent original reportado por Jira.
+            expect(result[0].metadata.time_spent_seconds).toBe(60);
+        });
+    });
+
+    describe('mapCreationToActivity', () => {
+        const createdIssue = {
+            key: 'PROJ-42',
+            fields: {
+                summary: 'Arreglar el login',
+                status: { name: 'To Do' },
+                project: { key: 'PROJ' },
+                created: '2026-05-10T10:00:00.000Z',
+                creator: { accountId: ME },
+            },
+        };
+
+        test('ticket creado por mí dentro de la ventana → activity "creation"', () => {
+            const [activity] = mapper.mapCreationToActivity('user-1', createdIssue, ME, WINDOW_START, WINDOW_END);
+            expect(activity).toMatchObject({
+                activityType: 'creation',
+                externalId: 'PROJ-42:creation:2026-05-10T10:00:00.000Z',
+            });
+            expect(activity.metadata.title).toBe('Creó "Arreglar el login" (PROJ-42)');
+            expect(activity.metadata.creator_account_id).toBe(ME);
+            // Acción puntual → mínimo de 5 minutos.
+            expect(activity.startTime).toEqual(new Date('2026-05-10T10:00:00.000Z'));
+            expect(activity.endTime).toEqual(new Date('2026-05-10T10:05:00.000Z'));
+        });
+
+        test('ticket creado por otro → no se importa', () => {
+            const other = { ...createdIssue, fields: { ...createdIssue.fields, creator: { accountId: OTHER } } };
+            expect(mapper.mapCreationToActivity('u', other, ME, WINDOW_START, WINDOW_END)).toEqual([]);
+        });
+
+        test('creación fuera de la ventana → no se importa', () => {
+            const old = { ...createdIssue, fields: { ...createdIssue.fields, created: '2026-05-10T08:00:00.000Z' } };
+            expect(mapper.mapCreationToActivity('u', old, ME, WINDOW_START, WINDOW_END)).toEqual([]);
+        });
+
+        test('issue sin creator/created → no rompe, devuelve []', () => {
+            expect(mapper.mapCreationToActivity('u', { key: 'X-1', fields: {} }, ME, WINDOW_START, WINDOW_END)).toEqual([]);
+            expect(mapper.mapCreationToActivity('u', null, ME, WINDOW_START, WINDOW_END)).toEqual([]);
         });
     });
 
@@ -231,6 +314,46 @@ describe('jira.mapper', () => {
             ];
             const [activity] = mapper.mapWorklogsToActivities('u', issue, worklogs, ME, WINDOW_START, WINDOW_END);
             expect(activity.metadata.title).toBe('Arreglar el login · 1h 30m (PROJ-42)');
+        });
+
+        test('assignment: usa "<summary> · asignada a <to> (<key>)"', () => {
+            const histories = [{
+                id: 'h1', author: { accountId: ME }, created: '2026-05-10T10:00:00.000Z',
+                items: [{ field: 'assignee', fromString: 'Juan', toString: 'Ana' }],
+            }];
+            const [activity] = mapper.mapChangelogToActivities('u', issue, histories, ME, WINDOW_START, WINDOW_END);
+            expect(activity.metadata.title).toBe('Arreglar el login · asignada a Ana (PROJ-42)');
+        });
+
+        test('assignment sin destinatario (desasignación) → "sin asignar"', () => {
+            const histories = [{
+                id: 'h1', author: { accountId: ME }, created: '2026-05-10T10:00:00.000Z',
+                items: [{ field: 'assignee', fromString: 'Ana', toString: null }],
+            }];
+            const [activity] = mapper.mapChangelogToActivities('u', issue, histories, ME, WINDOW_START, WINDOW_END);
+            expect(activity.metadata.title).toBe('Arreglar el login · sin asignar (PROJ-42)');
+        });
+
+        test('edit: usa "<summary> · <campo actualizado> (<key>)" (frase nominal, sin verbo activo)', () => {
+            const histories = [{
+                id: 'h1', author: { accountId: ME }, created: '2026-05-10T10:00:00.000Z',
+                items: [
+                    { field: 'description', fromString: 'a', toString: 'b' },
+                    { field: 'summary', fromString: 'x', toString: 'y' },
+                ],
+            }];
+            const result = mapper.mapChangelogToActivities('u', issue, histories, ME, WINDOW_START, WINDOW_END);
+            expect(result[0].metadata.title).toBe('Arreglar el login · descripción actualizada (PROJ-42)');
+            expect(result[1].metadata.title).toBe('Arreglar el login · título actualizado (PROJ-42)');
+        });
+
+        test('creation: usa "Creó \\"<summary>\\" (<key>)"', () => {
+            const createdIssue = {
+                key: 'PROJ-42',
+                fields: { summary: 'Arreglar el login', created: '2026-05-10T10:00:00.000Z', creator: { accountId: ME } },
+            };
+            const [activity] = mapper.mapCreationToActivity('u', createdIssue, ME, WINDOW_START, WINDOW_END);
+            expect(activity.metadata.title).toBe('Creó "Arreglar el login" (PROJ-42)');
         });
 
         test('issue sin summary → usa key como fallback', () => {

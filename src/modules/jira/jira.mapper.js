@@ -15,8 +15,18 @@
  *    payloads adversariales.
  */
 
-const { ACTIVITY_SOURCE, ACTIVITY_TYPE } = require('./jira.constants');
+const { ACTIVITY_SOURCE, ACTIVITY_TYPE, CHANGELOG_FIELD_TO_ACTIVITY_TYPE } = require('./jira.constants');
 const { sanitizeText, MAX_TITLE_CHARS, MAX_DESCRIPTION_CHARS } = require('../../shared/utils/sanitize');
+
+// Etiquetas legibles para los campos editables que agrupamos como EDIT genérico.
+// Son frases nominales en participio (no verbos activos) para que el título
+// `<summary> · <label>` no se lea como si el ticket fuera el sujeto que edita.
+// Si el campo no está acá, cae a "campo actualizado" (defensivo; no debería pasar
+// porque sólo llegan campos de CHANGELOG_FIELD_TO_ACTIVITY_TYPE).
+const EDIT_FIELD_LABELS = {
+    description: 'descripción actualizada',
+    summary: 'título actualizado',
+};
 
 // —— Topes para inputs de Atlassian (defensa en profundidad) ——
 // `summary` típicamente es <255 chars en Jira, pero un valor adversarial podría ser
@@ -31,6 +41,13 @@ const MAX_STATUS_NAME_CHARS = 60;
 // es no confiable por default — Jira no es excepción).
 const ADF_MAX_NODES = 1000;
 const ADF_MAX_DEPTH = 20;
+
+// —— Duración mínima de una actividad ——
+// Acciones puntuales de Jira (comments, transitions) y worklogs con un timeSpent
+// ínfimo tienen duración ~0, lo que las vuelve invisibles/inútiles en el timeline.
+// Si la duración resultante es ≤ 60s, persistimos un default de 5 minutos.
+const MIN_DURATION_SECONDS = 60;
+const DEFAULT_DURATION_SECONDS = 5 * 60;
 
 /**
  * Extrae el texto plano de un documento Atlassian Document Format (ADF).
@@ -94,6 +111,9 @@ const formatDuration = (seconds) => {
  *  - comment    → `Comentario en "<summary>" (<key>)`
  *  - transition → `<summary> · <from> → <to> (<key>)`
  *  - worklog    → `<summary> · <duration> (<key>)`
+ *  - creation   → `Creó "<summary>" (<key>)`
+ *  - assignment → `<summary> · asignada a <to>` (o `· sin asignar`) `(<key>)`
+ *  - edit       → `<summary> · <campo actualizado> (<key>)`
  *
  * Todos los componentes ya están saneados. La concatenación no inyecta HTML —
  * solo construye un string plano que el front renderiza vía React.
@@ -116,6 +136,16 @@ const buildActivityTitle = ({ actionType, issue, item, durationSeconds }) => {
         raw = `${summaryPart} · ${from} → ${to}${keySuffix}`;
     } else if (actionType === ACTIVITY_TYPE.WORKLOG) {
         raw = `${summaryPart} · ${formatDuration(durationSeconds)}${keySuffix}`;
+    } else if (actionType === ACTIVITY_TYPE.CREATION) {
+        raw = `Creó "${summaryPart}"${keySuffix}`;
+    } else if (actionType === ACTIVITY_TYPE.ASSIGNMENT) {
+        const to = sanitizeText(item?.toString, MAX_STATUS_NAME_CHARS);
+        raw = to
+            ? `${summaryPart} · asignada a ${to}${keySuffix}`
+            : `${summaryPart} · sin asignar${keySuffix}`;
+    } else if (actionType === ACTIVITY_TYPE.EDIT) {
+        const label = EDIT_FIELD_LABELS[item?.field] || 'campo actualizado';
+        raw = `${summaryPart} · ${label}${keySuffix}`;
     } else {
         raw = summaryPart + keySuffix;
     }
@@ -146,15 +176,28 @@ const issueMetadata = (issue) => ({
 
 const isMine = (author, myAccountId) => Boolean(author) && author.accountId === myAccountId;
 
-const buildActivity = ({ userId, issue, actionType, timestamp, endTimestamp, title, description, extraMetadata }) => {
+const buildActivity = ({ userId, issue, actionType, timestamp, endTimestamp, title, description, extraMetadata, externalIdDiscriminator }) => {
     const iso = new Date(timestamp).toISOString();
+    // Un mismo changelog entry (mismo timestamp) puede editar varios campos del mismo
+    // tipo (p.ej. description y summary → ambos EDIT). Sin discriminador, sus externalId
+    // colisionarían y `skipDuplicates` descartaría uno. El campo lo vuelve único.
+    const externalId = externalIdDiscriminator
+        ? `${issue.key}:${actionType}:${externalIdDiscriminator}:${iso}`
+        : buildExternalId(issue.key, actionType, iso);
+    const startMs = new Date(timestamp).getTime();
+    const rawEndMs = new Date(endTimestamp ?? timestamp).getTime();
+    // Si la duración es ≤ 60s (incluye las acciones puntuales con start === end),
+    // aplicamos un mínimo de 5 minutos antes de persistir.
+    const endMs = rawEndMs - startMs <= MIN_DURATION_SECONDS * 1000
+        ? startMs + DEFAULT_DURATION_SECONDS * 1000
+        : rawEndMs;
     return {
         userId,
         source: ACTIVITY_SOURCE,
         activityType: actionType,
-        externalId: buildExternalId(issue.key, actionType, iso),
-        startTime: new Date(timestamp),
-        endTime: new Date(endTimestamp ?? timestamp),
+        externalId,
+        startTime: new Date(startMs),
+        endTime: new Date(endMs),
         metadata: {
             ...issueMetadata(issue),
             action_type: actionType,
@@ -191,8 +234,29 @@ const mapCommentsToActivities = (userId, issue, comments, myAccountId, dateStart
         });
 };
 
+/** Metadata específica por tipo de cambio del changelog. */
+const buildChangelogMetadata = (actionType, item, history) => {
+    const base = { changelog_id: history.id ?? null };
+    if (actionType === ACTIVITY_TYPE.TRANSITION) {
+        return { ...base, from_status: item.fromString ?? null, to_status: item.toString ?? null };
+    }
+    if (actionType === ACTIVITY_TYPE.ASSIGNMENT) {
+        return { ...base, from_assignee: item.fromString ?? null, to_assignee: item.toString ?? null };
+    }
+    // EDIT: from/to pueden ser texto largo (description) → saneamos y truncamos.
+    return {
+        ...base,
+        field: item.field ?? null,
+        from: item.fromString != null ? sanitizeText(item.fromString, MAX_DESCRIPTION_CHARS) || null : null,
+        to: item.toString != null ? sanitizeText(item.toString, MAX_DESCRIPTION_CHARS) || null : null,
+    };
+};
+
 /**
- * Transiciones de estado del usuario dentro de la ventana.
+ * Cambios del usuario en el changelog dentro de la ventana: transiciones de estado,
+ * (re)asignaciones y ediciones de contenido (descripción, título). El tipo de
+ * actividad se deriva del campo via `CHANGELOG_FIELD_TO_ACTIVITY_TYPE`; los campos no
+ * mapeados se ignoran.
  * @param {object[]} histories - payload `values[]` de `/issue/{key}/changelog`.
  */
 const mapChangelogToActivities = (userId, issue, histories, myAccountId, dateStart, dateEnd) => {
@@ -202,26 +266,47 @@ const mapChangelogToActivities = (userId, issue, histories, myAccountId, dateSta
         if (!isMine(history.author, myAccountId) || !isWithinWindow(history.created, dateStart, dateEnd)) {
             continue;
         }
-        const statusItems = Array.isArray(history.items)
-            ? history.items.filter((item) => item.field === 'status')
-            : [];
-        for (const item of statusItems) {
-            const title = buildActivityTitle({ actionType: ACTIVITY_TYPE.TRANSITION, issue, item });
+        const items = Array.isArray(history.items) ? history.items : [];
+        for (const item of items) {
+            const actionType = CHANGELOG_FIELD_TO_ACTIVITY_TYPE[item.field];
+            if (!actionType) continue;
+            const title = buildActivityTitle({ actionType, issue, item });
             activities.push(buildActivity({
                 userId,
                 issue,
-                actionType: ACTIVITY_TYPE.TRANSITION,
+                actionType,
                 timestamp: history.created,
                 title,
-                extraMetadata: {
-                    from_status: item.fromString ?? null,
-                    to_status: item.toString ?? null,
-                    changelog_id: history.id ?? null,
-                },
+                // EDIT agrupa varios campos bajo un mismo tipo: discriminamos por campo
+                // para no colisionar externalId cuando un cambio toca description + summary.
+                externalIdDiscriminator: actionType === ACTIVITY_TYPE.EDIT ? item.field : undefined,
+                extraMetadata: buildChangelogMetadata(actionType, item, history),
             }));
         }
     }
     return activities;
+};
+
+/**
+ * Creación del ticket por el propio usuario dentro de la ventana. Jira no emite un
+ * changelog entry para la creación, así que la inferimos de `fields.created` +
+ * `fields.creator` (el search pide ambos campos explícitamente).
+ */
+const mapCreationToActivity = (userId, issue, myAccountId, dateStart, dateEnd) => {
+    const created = issue?.fields?.created;
+    const creator = issue?.fields?.creator;
+    if (!isMine(creator, myAccountId) || !isWithinWindow(created, dateStart, dateEnd)) {
+        return [];
+    }
+    const title = buildActivityTitle({ actionType: ACTIVITY_TYPE.CREATION, issue });
+    return [buildActivity({
+        userId,
+        issue,
+        actionType: ACTIVITY_TYPE.CREATION,
+        timestamp: created,
+        title,
+        extraMetadata: { creator_account_id: creator.accountId ?? null },
+    })];
 };
 
 /**
@@ -255,6 +340,7 @@ const mapWorklogsToActivities = (userId, issue, worklogs, myAccountId, dateStart
 const issueToActivities = (input, dateStart, dateEnd) => {
     const { userId, issue, comments, histories, worklogs, myAccountId } = input;
     return [
+        ...mapCreationToActivity(userId, issue, myAccountId, dateStart, dateEnd),
         ...mapCommentsToActivities(userId, issue, comments, myAccountId, dateStart, dateEnd),
         ...mapChangelogToActivities(userId, issue, histories, myAccountId, dateStart, dateEnd),
         ...mapWorklogsToActivities(userId, issue, worklogs, myAccountId, dateStart, dateEnd),
@@ -265,6 +351,7 @@ module.exports = {
     buildExternalId,
     isWithinWindow,
     issueMetadata,
+    mapCreationToActivity,
     mapCommentsToActivities,
     mapChangelogToActivities,
     mapWorklogsToActivities,
@@ -281,5 +368,7 @@ module.exports = {
         MAX_DESCRIPTION_CHARS,
         ADF_MAX_NODES,
         ADF_MAX_DEPTH,
+        MIN_DURATION_SECONDS,
+        DEFAULT_DURATION_SECONDS,
     },
 };
