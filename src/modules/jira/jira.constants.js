@@ -47,10 +47,28 @@ const ACTIVITY_SOURCE = 'jira';
 // Tipos de acción de Jira que mapeamos a DailyActivity.
 // El /search se usa para descubrir QUÉ issues inspeccionar; las entradas
 // persistidas son las acciones concretas del usuario dentro de la ventana.
+//
+// Más allá de comentar / transicionar / loguear trabajo, capturamos el trabajo de
+// gestión típico de un PL: crear tickets, asignarlos y editar su contenido. Todas
+// estas acciones siguen atribuyéndose por autor (el usuario que las hizo), nunca a terceros.
 const ACTIVITY_TYPE = {
     COMMENT: 'comment',
     TRANSITION: 'transition',
     WORKLOG: 'worklog',
+    CREATION: 'creation',
+    ASSIGNMENT: 'assignment',
+    EDIT: 'edit',
+};
+
+// Campos del changelog de Jira que consideramos "trabajo real" y mapeamos a actividad.
+// `status` y `assignee` tienen su propio tipo de alta señal; el resto de los campos de
+// contenido (descripción, título) se agrupan como EDIT genérico. Agregar un campo nuevo
+// es una sola línea acá; el mapper deriva el tipo y arma el título/metadata.
+const CHANGELOG_FIELD_TO_ACTIVITY_TYPE = {
+    status: ACTIVITY_TYPE.TRANSITION,
+    assignee: ACTIVITY_TYPE.ASSIGNMENT,
+    description: ACTIVITY_TYPE.EDIT,
+    summary: ACTIVITY_TYPE.EDIT,
 };
 
 // Validación del cloudId antes de interpolarlo en URLs (defensa SSRF — A10 OWASP)
@@ -82,5 +100,6 @@ module.exports = {
     SEARCH_PAGE_SIZE,
     ACTIVITY_SOURCE,
     ACTIVITY_TYPE,
+    CHANGELOG_FIELD_TO_ACTIVITY_TYPE,
     CLOUD_ID_REGEX,
 };

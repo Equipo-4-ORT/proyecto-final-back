@@ -201,6 +201,25 @@ describe('Drive Activity Service', () => {
             expect(data[1]).toMatchObject({ source: 'drive', activityType: 'create' });
         });
 
+        test('sanea + trunca el title del archivo (control chars y longitud) antes de persistir', async () => {
+            // El nombre del archivo puede venir de un archivo compartido por un tercero: input no confiable.
+            const evilActivity = {
+                primaryActionDetail: { edit: {} },
+                targets: [{ driveItem: { name: 'items/doc1', title: `Doc\x00\x07umento${'C'.repeat(5000)}`, mimeType: 'application/vnd.google-apps.document' } }],
+                timestamp: '2026-05-26T10:00:00Z',
+            };
+            mockActivityQuery.mockResolvedValue({ data: { activities: [evilActivity] } });
+            prisma.dailyActivity.createMany.mockResolvedValue({ count: 1 });
+
+            await persistDriveActivities(mockUserId, 'token', startTime, endTime);
+
+            const saved = prisma.dailyActivity.createMany.mock.calls[0][0].data[0];
+            // eslint-disable-next-line no-control-regex
+            expect(saved.metadata.title).not.toMatch(/[\x00-\x08\x0E-\x1F\x7F]/);
+            expect(saved.metadata.title.length).toBeLessThanOrEqual(200);
+            expect(saved.metadata.title.startsWith('Documento')).toBe(true);
+        });
+
         test('Usa timeRange para startTime y endTime cuando está disponible', async () => {
             const activityWithRange = {
                 primaryActionDetail: { edit: {} },

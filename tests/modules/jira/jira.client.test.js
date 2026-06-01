@@ -137,7 +137,13 @@ describe('jira.client', () => {
 
             const firstUrl = new URL(global.fetch.mock.calls[0][0]);
             expect(firstUrl.pathname).toBe('/ex/jira/cloud-1/rest/api/3/search/jql');
-            expect(firstUrl.searchParams.get('jql')).toContain('assignee = currentUser()');
+            // El query incluye al usuario como assignee/reporter/creator/worklogAuthor:
+            // así también captura tickets que creó y asignó a otros, o donde logueó trabajo.
+            const jql = firstUrl.searchParams.get('jql');
+            expect(jql).toContain('assignee = currentUser()');
+            expect(jql).toContain('reporter = currentUser()');
+            expect(jql).toContain('creator = currentUser()');
+            expect(jql).toContain('worklogAuthor = currentUser()');
             expect(firstUrl.searchParams.has('nextPageToken')).toBe(false);
             expect(new URL(global.fetch.mock.calls[1][0]).searchParams.get('nextPageToken')).toBe('tok-2');
         });
