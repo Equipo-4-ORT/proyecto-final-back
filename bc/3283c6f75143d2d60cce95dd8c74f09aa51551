@@ -1,0 +1,55 @@
+tests/modules/auth/auth.tokens.test.js
+  s_b7ca45f47b6edc::t_c1c101857bfadb 1-104
+src/shared/middleware/authMiddleware.js
+  s_b7ca45f47b6edc::t_88c2d1aac016b3 4-6,8-10,15
+src/modules/auth/auth.service.js
+  s_b7ca45f47b6edc::t_e0ebc705672755 107-109
+src/app.js
+  s_b7ca45f47b6edc::t_37f453f3157459 3
+  s_b7ca45f47b6edc::t_099a2878b49493 10-17,19
+src/modules/auth/auth.tokens.js
+  s_b7ca45f47b6edc::t_2f0171c01489c0 21-24,26-27,29,33-35
+  s_b7ca45f47b6edc::t_79572d0ddd5a9b 1-20,25,28,30-32,36-44
+tests/modules/auth/auth.service.test.js
+  s_b7ca45f47b6edc::t_052ed86542f664 121-122,148,164,173
+tests/shared/middleware/authMiddleware.test.js
+  s_b7ca45f47b6edc::t_896a2fc22c3343 2,25,33,38,46-47,53-54,69-80,95-96,98
+src/modules/auth/auth.cookies.js
+  s_b7ca45f47b6edc::t_f129a44f085830 1-24,26-30,32,34-38,40,42-43,45-51
+  s_b7ca45f47b6edc::t_558d2e3cd3fcc6 25,31,33,39,41,44
+src/modules/auth/auth.routes.js
+  s_b7ca45f47b6edc::t_fc99a533c2ab2a 2-11,17-19
+prisma/schema.prisma
+  s_b7ca45f47b6edc::t_9b759408812294 67,72-88
+  s_b7ca45f47b6edc::t_bdd4c690b2bee7 42-47
+CHANGELOG.md
+  s_b7ca45f47b6edc::t_57dcd98760d36e 17-18,24-31
+.env.example
+  s_b7ca45f47b6edc::t_7b5ab4bdcf3612 30-31,34-48
+tests/modules/auth/auth.cookies.test.js
+  s_b7ca45f47b6edc::t_e091fd171b06b7 1-82
+prisma/migrations/20260602180000_add_sessions/migration.sql
+  s_b7ca45f47b6edc::t_c529967e1b84a8 1-22
+tests/modules/auth/auth.controller.test.js
+  s_b7ca45f47b6edc::t_77abee700de54e 1,3-6,10,12-14,17-43,46-59,62-79,85-86,91,93,100,103-105,107-110,113-115,119-132,135-137,139-141,143-147,150-155,157-159,161-164,166-193,195-196,199-208,210-220,222-304
+src/modules/auth/auth.controller.js
+  s_b7ca45f47b6edc::t_f8be80668d87c6 11-13,32-51,62,65-100,102-144,175-182
+package.json
+  s_b7ca45f47b6edc::t_a01628915ba0a4 31
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "bc3283c6f75143d2d60cce95dd8c74f09aa51551",
+  "prompts": {},
+  "sessions": {
+    "s_b7ca45f47b6edc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6a606ccc-a8c7-430c-9568-135c4f094470",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "LicFuraca <martinexequield@gmail.com>"
+    }
+  }
+}
