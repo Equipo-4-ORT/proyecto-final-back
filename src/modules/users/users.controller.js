@@ -15,13 +15,18 @@ const updateSettings = async (req, res) => {
         const userId = req.user.id;
         const { workStartTime, workEndTime, avoidOverlaps } = req.body;
 
-        const updatedSettings = await updateUserSettings(userId, { workStartTime, workEndTime, avoidOverlaps });
+       const updatedSettings = await updateUserSettings(userId, { 
+      workStartTime, 
+      workEndTime, 
+      avoidOverlaps 
+    });
         return res.status(200).json(updatedSettings);
     } catch (error) {
-        if (error.message.includes('invalido') || error.message.includes('mayor')) {
-            return res.status(400).json({ error: error.message });
-        }
-        return res.status(500).json({ error: 'Error updating user settings' });
+       if (error.statusCode === 400 || error.name === 'UserValidationError') {
+      return res.status(400).json({ error: error.message });
+    }
+        console.error('Error al actualizar las configuraciones:', error);
+    return res.status(500).json({ error: 'Ocurrió un error interno al actualizar las configuraciones.' });
     }
 };
 

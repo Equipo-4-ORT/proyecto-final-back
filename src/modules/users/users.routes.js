@@ -1,4 +1,5 @@
 const express = require('express');
+const router = express.Router();
 const { authMiddleware } = require('../../shared/middleware');
 const { apiLimiter } = require('../../shared/middleware/rateLimiter');
 const { getSettings, updateSettings } = require('./users.controller');

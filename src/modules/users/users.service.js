@@ -1,6 +1,14 @@
 const prisma = require('../../shared/database/prisma');
 const logger = require('../../shared/utils/logger');
 
+class UserValidationError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'UserValidationError';
+    this.statusCode = 400; // <-- [Solución 1] Le adjuntamos el código HTTP
+  }
+}
+
 class UnauthorizedUserError extends Error {
   constructor(email) {
     super('Tu cuenta no está habilitada. Contactá al administrador.');
@@ -64,43 +72,57 @@ const getUserSettings = async (userId) => {
 
 const updateUserSettings = async (userId, settingsData) => {
 const { workStartTime, workEndTime, avoidOverlaps } = settingsData;
+const dataToUpdate = {};
 const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/; 
 
-if (workStartTime && !timeRegex.test(workStartTime)) {
-  throw new Error('workStartTime debe tener formato HH:mm');
-}
-if (workEndTime && !timeRegex.test(workEndTime)) {
-  throw new Error('workEndTime debe tener formato HH:mm');
-}
+if (workStartTime !== undefined) {
+    if (!timeRegex.test(workStartTime)) {
+      throw new UserValidationError('Formato de hora de inicio inválido. Debe ser HH:MM.');
+    }
+    dataToUpdate.workStartTime = workStartTime;
+  }
+if (workEndTime !== undefined) {
+    if (!timeRegex.test(workEndTime)) {
+      throw new UserValidationError('Formato de hora de fin inválido. Debe ser HH:MM.');
+    }
+    dataToUpdate.workEndTime = workEndTime;
+  }
 
 if (workStartTime && workEndTime) {
-  if (workStartTime >= workEndTime) {
-    throw new Error('workStartTime debe ser menor que workEndTime');
+    if (workStartTime >= workEndTime) {
+      throw new UserValidationError('La hora de fin debe ser mayor a la hora de inicio.');
+    }
   }
-}
 
-const dataToUpdate = {};
-if (workStartTime !== undefined) dataToUpdate.workStartTime = workStartTime;
-if (workEndTime !== undefined) dataToUpdate.workEndTime = workEndTime;
-if (avoidOverlaps !== undefined) dataToUpdate.avoidOverlaps = avoidOverlaps;
 
+if (avoidOverlaps !== undefined) {
+    if (typeof avoidOverlaps !== 'boolean') {
+      throw new UserValidationError('El campo avoidOverlaps debe ser un valor booleano (true o false).');
+    }
+    dataToUpdate.avoidOverlaps = avoidOverlaps;
+  }
+
+  if (Object.keys(dataToUpdate).length === 0) {
+    throw new UserValidationError('No se enviaron campos válidos para actualizar.');
+  }
 const updatedUser = await prisma.user.update({
-  where: { id: userId },
-  data: dataToUpdate,
-  select: {
-    workStartTime: true,
-    workEndTime: true,
-    avoidOverlaps: true,
+    where: { id: userId },
+    data: dataToUpdate,
+    select: {
+      workStartTime: true,
+      workEndTime: true,
+      avoidOverlaps: true
+    }
+  });
 
-  }
-});
 return updatedUser;
-}
+};
 
 
 module.exports = {
   loginGoogleUser, 
   UnauthorizedUserError,
   getUserSettings,
-  updateUserSettings
+  updateUserSettings,
+  UserValidationError
    };

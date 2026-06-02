@@ -6,13 +6,17 @@ const getReports = async (req, res) => {
         const userId = req.user.id;
 
         const{ page, limit, from, to } = req.query;
-
-        const reports = await getReportsHistory(userId, { page, limit, from, to });
-
-        return res.status(200).json(reports);
+        const result = await getReportsHistory(userId, { page, limit, from, to });
+        return res.status(200).json(result);
+        
     } catch (error) {
-        logger.error('Error fetching reports history', { message: error.message });
-        return res.status(500).json({ error: 'Error fetching reports history' });
+        // Atrapamos el error de validación que tira nuestro servicio
+        if (error.message.includes('inválido')) {
+            return res.status(400).json({ error: error.message });
+        }
+        
+        console.error('Error obteniendo el historial de reportes:', error);
+        return res.status(500).json({ error: 'Ocurrió un error interno al obtener el historial.' });
     }
 };
 
