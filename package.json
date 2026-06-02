@@ -28,6 +28,7 @@
   "homepage": "https://github.com/FelipeValenzuela00/proyecto-final-back#readme",
   "dependencies": {
     "@prisma/client": "^6.19.3",
+    "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",

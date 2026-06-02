@@ -1,14 +1,22 @@
 const express = require('express');
 const cors = require('cors');
+const cookieParser = require('cookie-parser');
 const { requestLogger, errorHandler, authErrorHandler } = require('./shared/middleware');
 const { authLimiter, apiLimiter } = require('./shared/middleware/rateLimiter');
 
 const app = express();
 
 // 1. Middlewares Globales
-// TODO: restringir orígenes antes de ir a prod. Ver https://expressjs.com/en/resources/middleware/cors.html
-app.use(cors());
+// CORS con credentials para que el browser mande/reciba las cookies de sesión.
+// origin EXACTO (nunca '*'): el browser rechaza '*' junto con credentials:true.
+app.use(
+  cors({
+    origin: process.env.FRONTEND_BASE_URL,
+    credentials: true,
+  }),
+);
 app.use(express.json());
+app.use(cookieParser()); // pobla req.cookies (lo lee authMiddleware) — antes de las rutas
 app.use(requestLogger);
 
 // 2. Rate limiting
