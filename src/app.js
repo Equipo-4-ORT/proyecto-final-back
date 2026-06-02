@@ -18,7 +18,7 @@ app.use('/api', apiLimiter);
 const authRoutes = require('./modules/auth/auth.routes');
 const userRoutes = require('./modules/users/users.routes');
 app.use('/auth', authRoutes);
-app.use('/users', userRoutes);
+app.use('/users', userRoutes, apiLimiter);
 const jiraRoutes = require('./modules/jira/jira.routes');
 app.use('/api/jira', jiraRoutes);
 
