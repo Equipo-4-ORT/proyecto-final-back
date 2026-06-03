@@ -2,6 +2,7 @@ const {
   createUser,
   listUsers,
   toggleUserStatus,
+  updateUser,
   UserAlreadyExistsError,
   UserNotFoundError,
 } = require('./admin.service');
@@ -67,4 +68,33 @@ const patchUserStatus = async (req, res) => {
   }
 };
 
-module.exports = { postUser, getUsers, patchUserStatus };
+const editUser = async (req, res) => {
+  const { id } = req.params;
+  const { fullName, email, role } = req.body;
+
+  if (email) {
+    const emailRegex = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;
+    if (!emailRegex.test(email)) {
+      return res
+        .status(400)
+        .json({ error: 'Bad Request', message: 'El email no tiene un formato válido' });
+    }
+  }
+
+  try {
+    const updatedUser= await updateUser(id, { fullName, email, role });
+    return res.status(200).json(updatedUser);
+  } catch (error) {
+    if (error instanceof UserNotFoundError || error instanceof UserAlreadyExistsError) {
+      return res.status(error.statusCode).json({ error: error.name, message: error.message });
+    }
+    logger.error('Error al actualizar usuario', { error });
+    return res
+      .status(500)
+      .json({ error: 'Internal Server Error', message: 'No se pudo actualizar el usuario' });
+  }
+}
+
+
+
+module.exports = { postUser, getUsers, patchUserStatus, editUser };
