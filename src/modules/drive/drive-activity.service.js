@@ -19,6 +19,9 @@ class InvalidWindowError extends Error {
 // Tipos de acción que representan trabajo activo sobre un archivo
 const RELEVANT_ACTIONS = new Set(['edit', 'create']);
 
+// Acciones que se cuentan en el resumen por archivo
+const SUMMARY_ACTIONS = new Set(['edit', 'create', 'comment', 'permissionChange']);
+
 // MIME types a excluir: no son archivos de trabajo sino contenedores o atajos
 const EXCLUDED_MIME_TYPES = new Set([
     'application/vnd.google-apps.folder',
@@ -29,6 +32,18 @@ const EXCLUDED_MIME_TYPES = new Set([
 // día, muy por encima de cualquier volumen humano real. Protege contra un
 // nextPageToken que cicle (bug de la API) sin truncar datos legítimos.
 const MAX_PAGES = 100;
+
+// Mapeo de mimeType de Google Workspace a nombre de aplicación legible
+const MIME_TO_APP = {
+    'application/vnd.google-apps.document':     'Google Docs',
+    'application/vnd.google-apps.spreadsheet':  'Google Sheets',
+    'application/vnd.google-apps.presentation': 'Google Slides',
+    'application/vnd.google-apps.form':         'Google Forms',
+    'application/vnd.google-apps.drawing':      'Google Drawings',
+    'application/vnd.google-apps.script':       'Apps Script',
+    'application/vnd.google-apps.site':         'Google Sites',
+    'application/vnd.google-apps.jam':          'Google Jamboard',
+};
 
 /**
  * Consulta la Drive Activity API para el rango de tiempo dado.
@@ -167,8 +182,128 @@ const persistDriveActivities = async (userId, refreshToken, startTime, endTime) 
     return { count: result.count, message: `${result.count} actividades de Drive guardadas` };
 };
 
+/**
+ * Agrupa actividades crudas de Drive por archivo y cuenta las acciones
+ * relevantes (edit/create, comment, permissionChange) por cada uno.
+ *
+ * Las carpetas y accesos directos se excluyen del resumen.
+ * Las acciones que no pertenecen a SUMMARY_ACTIONS se ignoran.
+ *
+ * @param {object[]} rawActivities - Array crudo devuelto por getDriveActivitiesForDay
+ * @returns {Array<{
+ *   fileId: string,
+ *   title: string|null,
+ *   mimeType: string|null,
+ *   editCount: number,
+ *   commentCount: number,
+ *   shareCount: number,
+ *   totalActions: number
+ * }>}
+ */
+const summarizeDriveActivities = (rawActivities) => {
+    // fileId → acumulador de conteos
+    const byFile = new Map();
+
+    for (const activity of rawActivities) {
+        const actionType = activity.primaryActionDetail
+            ? Object.keys(activity.primaryActionDetail)[0]
+            : null;
+
+        if (!actionType || !SUMMARY_ACTIONS.has(actionType)) continue;
+
+        const target = activity.targets?.[0]?.driveItem;
+        if (!target) continue;
+
+        const mimeType = target.mimeType || null;
+        if (EXCLUDED_MIME_TYPES.has(mimeType)) continue;
+
+        const fileId = target.name?.replace('items/', '') || null;
+        if (!fileId) continue;
+
+        if (!byFile.has(fileId)) {
+            byFile.set(fileId, {
+                fileId,
+                title: sanitizeText(target.title, MAX_TITLE_CHARS) || null,
+                mimeType,
+                editCount: 0,
+                commentCount: 0,
+                shareCount: 0,
+            });
+        }
+
+        const entry = byFile.get(fileId);
+
+        if (actionType === 'edit' || actionType === 'create') {
+            entry.editCount += 1;
+        } else if (actionType === 'comment') {
+            entry.commentCount += 1;
+        } else if (actionType === 'permissionChange') {
+            entry.shareCount += 1;
+        }
+    }
+
+    return Array.from(byFile.values()).map((entry) => ({
+        ...entry,
+        totalActions: entry.editCount + entry.commentCount + entry.shareCount,
+    }));
+};
+
+/**
+ * Enriquece el resumen de actividades de Drive con metadata actualizada de
+ * la Drive API v3 (name, mimeType, webViewLink) y determina la app de
+ * Google Workspace según el mimeType.
+ *
+ * Las llamadas a files.get se hacen en paralelo. Si un archivo no es
+ * accesible (eliminado, sin permiso, error de red), se conserva la entrada
+ * con los datos del resumen original y app: null, sin interrumpir el resto.
+ *
+ * @param {Array<{fileId: string, title: string|null, mimeType: string|null, editCount: number, commentCount: number, shareCount: number, totalActions: number}>} summary
+ *   Resultado de summarizeDriveActivities
+ * @param {string} refreshToken - Refresh token del usuario (ya descifrado)
+ * @returns {Promise<Array<{fileId: string, title: string|null, mimeType: string|null, webViewLink: string|null, app: string|null, editCount: number, commentCount: number, shareCount: number, totalActions: number}>>}
+ */
+const enrichDriveActivitySummary = async (summary, refreshToken) => {
+    if (summary.length === 0) return [];
+
+    const auth = getAuthenticatedGoogleClient(refreshToken);
+    const drive = google.drive({ version: 'v3', auth });
+
+    const results = await Promise.allSettled(
+        summary.map((entry) =>
+            drive.files.get({
+                fileId: entry.fileId,
+                fields: 'id,name,mimeType,webViewLink',
+            })
+        )
+    );
+
+    return summary.map((entry, i) => {
+        const outcome = results[i];
+
+        if (outcome.status === 'rejected') {
+            logger.warn('No se pudo obtener metadata del archivo de Drive', {
+                fileId: entry.fileId,
+                error: outcome.reason?.message,
+            });
+            return { ...entry, webViewLink: null, app: null };
+        }
+
+        const { name, mimeType, webViewLink } = outcome.value.data;
+
+        return {
+            ...entry,
+            title: sanitizeText(name, MAX_TITLE_CHARS) || entry.title,
+            mimeType: mimeType || entry.mimeType,
+            webViewLink: webViewLink || null,
+            app: MIME_TO_APP[mimeType] ?? null,
+        };
+    });
+};
+
 module.exports = {
     getDriveActivitiesForDay,
     persistDriveActivities,
+    summarizeDriveActivities,
+    enrichDriveActivitySummary,
     InvalidWindowError,
 };

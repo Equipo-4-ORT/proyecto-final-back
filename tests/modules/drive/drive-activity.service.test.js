@@ -6,6 +6,8 @@ const { google } = require('googleapis');
 const {
     getDriveActivitiesForDay,
     persistDriveActivities,
+    summarizeDriveActivities,
+    enrichDriveActivitySummary,
     InvalidWindowError,
 } = require('../../../src/modules/drive/drive-activity.service');
 const { getAuthenticatedGoogleClient } = require('../../../src/modules/google/google.service');
@@ -15,6 +17,7 @@ const logger = require('../../../src/shared/utils/logger');
 jest.mock('googleapis', () => ({
     google: {
         driveactivity: jest.fn(),
+        drive: jest.fn(),
     },
 }));
 jest.mock('../../../src/modules/google/google.service');
@@ -30,6 +33,7 @@ jest.mock('../../../src/shared/utils/logger', () => ({
 
 describe('Drive Activity Service', () => {
     let mockActivityQuery;
+    let mockFilesGet;
 
     beforeEach(() => {
         jest.clearAllMocks();
@@ -39,6 +43,11 @@ describe('Drive Activity Service', () => {
         mockActivityQuery = jest.fn();
         google.driveactivity.mockReturnValue({
             activity: { query: mockActivityQuery },
+        });
+
+        mockFilesGet = jest.fn();
+        google.drive.mockReturnValue({
+            files: { get: mockFilesGet },
         });
     });
 
@@ -277,6 +286,259 @@ describe('Drive Activity Service', () => {
                 message: 'No se encontraron actividades relevantes de Drive para guardar',
             });
             expect(prisma.dailyActivity.createMany).not.toHaveBeenCalled();
+        });
+    });
+
+    // ====================================================================
+    // SUITE 3: summarizeDriveActivities — agrupación y conteo por archivo
+    // ====================================================================
+    describe('summarizeDriveActivities', () => {
+        const docActivity = (actionType, fileId = 'doc1', title = 'Documento') => ({
+            primaryActionDetail: { [actionType]: {} },
+            targets: [{ driveItem: { name: `items/${fileId}`, title, mimeType: 'application/vnd.google-apps.document' } }],
+            timestamp: '2026-05-26T10:00:00Z',
+        });
+
+        test('Devuelve array vacío cuando no hay actividades', () => {
+            expect(summarizeDriveActivities([])).toEqual([]);
+        });
+
+        test('Agrupa varias acciones del mismo archivo en una sola entrada', () => {
+            const activities = [
+                docActivity('edit'),
+                docActivity('edit'),
+                docActivity('comment'),
+            ];
+
+            const result = summarizeDriveActivities(activities);
+
+            expect(result).toHaveLength(1);
+            expect(result[0]).toMatchObject({
+                fileId: 'doc1',
+                editCount: 2,
+                commentCount: 1,
+                shareCount: 0,
+                totalActions: 3,
+            });
+        });
+
+        test('Genera una entrada por archivo distinto', () => {
+            const activities = [
+                docActivity('edit', 'doc1'),
+                docActivity('edit', 'doc2'),
+                docActivity('comment', 'doc1'),
+            ];
+
+            const result = summarizeDriveActivities(activities);
+
+            expect(result).toHaveLength(2);
+            const ids = result.map((r) => r.fileId).sort();
+            expect(ids).toEqual(['doc1', 'doc2']);
+        });
+
+        test('Cuenta "create" dentro de editCount', () => {
+            const result = summarizeDriveActivities([docActivity('create')]);
+
+            expect(result[0].editCount).toBe(1);
+            expect(result[0].totalActions).toBe(1);
+        });
+
+        test('Cuenta permissionChange como shareCount', () => {
+            const result = summarizeDriveActivities([docActivity('permissionChange')]);
+
+            expect(result[0].shareCount).toBe(1);
+            expect(result[0].totalActions).toBe(1);
+        });
+
+        test('Ignora acciones fuera de SUMMARY_ACTIONS (rename, move, delete)', () => {
+            const activities = ['rename', 'move', 'delete'].map((t) => docActivity(t));
+
+            expect(summarizeDriveActivities(activities)).toEqual([]);
+        });
+
+        test('Excluye carpetas y accesos directos del resumen', () => {
+            const folder = {
+                primaryActionDetail: { edit: {} },
+                targets: [{ driveItem: { name: 'items/folder1', title: 'Carpeta', mimeType: 'application/vnd.google-apps.folder' } }],
+                timestamp: '2026-05-26T10:00:00Z',
+            };
+            const shortcut = {
+                primaryActionDetail: { edit: {} },
+                targets: [{ driveItem: { name: 'items/sc1', title: 'Acceso directo', mimeType: 'application/vnd.google-apps.shortcut' } }],
+                timestamp: '2026-05-26T10:00:00Z',
+            };
+
+            expect(summarizeDriveActivities([folder, shortcut])).toEqual([]);
+        });
+
+        test('Incluye title y mimeType del archivo en cada entrada', () => {
+            const result = summarizeDriveActivities([docActivity('edit', 'doc1', 'Mi Informe')]);
+
+            expect(result[0].title).toBe('Mi Informe');
+            expect(result[0].mimeType).toBe('application/vnd.google-apps.document');
+        });
+
+        test('Sanea el title antes de incluirlo en el resumen', () => {
+            const evil = {
+                primaryActionDetail: { edit: {} },
+                targets: [{ driveItem: { name: 'items/doc1', title: `Doc\x00\x07umento${'C'.repeat(5000)}`, mimeType: 'application/vnd.google-apps.document' } }],
+                timestamp: '2026-05-26T10:00:00Z',
+            };
+
+            const [entry] = summarizeDriveActivities([evil]);
+
+            // eslint-disable-next-line no-control-regex
+            expect(entry.title).not.toMatch(/[\x00-\x08\x0E-\x1F\x7F]/);
+            expect(entry.title.length).toBeLessThanOrEqual(200);
+        });
+
+        test('Calcula totalActions como suma de los tres contadores', () => {
+            const activities = [
+                docActivity('edit'),
+                docActivity('comment'),
+                docActivity('permissionChange'),
+                docActivity('create'),
+            ];
+
+            const [entry] = summarizeDriveActivities(activities);
+
+            expect(entry.editCount).toBe(2);   // edit + create
+            expect(entry.commentCount).toBe(1);
+            expect(entry.shareCount).toBe(1);
+            expect(entry.totalActions).toBe(4);
+        });
+
+        test('Ignora actividades sin target driveItem', () => {
+            const noTarget = {
+                primaryActionDetail: { edit: {} },
+                targets: [],
+                timestamp: '2026-05-26T10:00:00Z',
+            };
+
+            expect(summarizeDriveActivities([noTarget])).toEqual([]);
+        });
+    });
+
+    // ====================================================================
+    // SUITE 4: enrichDriveActivitySummary — metadata fresca + app label
+    // ====================================================================
+    describe('enrichDriveActivitySummary', () => {
+        const baseSummary = [
+            { fileId: 'doc1', title: 'Viejo título', mimeType: 'application/vnd.google-apps.document', editCount: 2, commentCount: 1, shareCount: 0, totalActions: 3 },
+            { fileId: 'sheet1', title: 'Planilla', mimeType: 'application/vnd.google-apps.spreadsheet', editCount: 1, commentCount: 0, shareCount: 1, totalActions: 2 },
+        ];
+
+        test('Devuelve array vacío si el resumen está vacío', async () => {
+            const result = await enrichDriveActivitySummary([], 'token');
+            expect(result).toEqual([]);
+            expect(mockFilesGet).not.toHaveBeenCalled();
+        });
+
+        test('Llama a files.get en paralelo por cada archivo del resumen', async () => {
+            mockFilesGet.mockResolvedValue({ data: { name: 'Doc', mimeType: 'application/vnd.google-apps.document', webViewLink: 'https://docs.google.com/doc1' } });
+
+            await enrichDriveActivitySummary(baseSummary, 'token');
+
+            expect(mockFilesGet).toHaveBeenCalledTimes(2);
+            expect(mockFilesGet).toHaveBeenCalledWith({ fileId: 'doc1', fields: 'id,name,mimeType,webViewLink' });
+            expect(mockFilesGet).toHaveBeenCalledWith({ fileId: 'sheet1', fields: 'id,name,mimeType,webViewLink' });
+        });
+
+        test('Enriquece title con el nombre fresco de la Drive API', async () => {
+            mockFilesGet
+                .mockResolvedValueOnce({ data: { name: 'Informe Q2', mimeType: 'application/vnd.google-apps.document', webViewLink: 'https://docs.google.com/doc1' } })
+                .mockResolvedValueOnce({ data: { name: 'Presupuesto', mimeType: 'application/vnd.google-apps.spreadsheet', webViewLink: 'https://sheets.google.com/sheet1' } });
+
+            const result = await enrichDriveActivitySummary(baseSummary, 'token');
+
+            expect(result[0].title).toBe('Informe Q2');
+            expect(result[1].title).toBe('Presupuesto');
+        });
+
+        test('Incluye webViewLink en cada entrada enriquecida', async () => {
+            mockFilesGet
+                .mockResolvedValueOnce({ data: { name: 'Doc', mimeType: 'application/vnd.google-apps.document', webViewLink: 'https://docs.google.com/doc1' } })
+                .mockResolvedValueOnce({ data: { name: 'Sheet', mimeType: 'application/vnd.google-apps.spreadsheet', webViewLink: 'https://sheets.google.com/sheet1' } });
+
+            const result = await enrichDriveActivitySummary(baseSummary, 'token');
+
+            expect(result[0].webViewLink).toBe('https://docs.google.com/doc1');
+            expect(result[1].webViewLink).toBe('https://sheets.google.com/sheet1');
+        });
+
+        test('Determina app correctamente según el mimeType', async () => {
+            mockFilesGet
+                .mockResolvedValueOnce({ data: { name: 'Doc', mimeType: 'application/vnd.google-apps.document', webViewLink: 'https://x' } })
+                .mockResolvedValueOnce({ data: { name: 'Sheet', mimeType: 'application/vnd.google-apps.spreadsheet', webViewLink: 'https://x' } });
+
+            const result = await enrichDriveActivitySummary(baseSummary, 'token');
+
+            expect(result[0].app).toBe('Google Docs');
+            expect(result[1].app).toBe('Google Sheets');
+        });
+
+        test('Devuelve app: null para mimeTypes no nativos de Workspace (PDF, imagen, etc.)', async () => {
+            const pdfSummary = [
+                { fileId: 'pdf1', title: 'contrato.pdf', mimeType: 'application/pdf', editCount: 1, commentCount: 0, shareCount: 0, totalActions: 1 },
+            ];
+            mockFilesGet.mockResolvedValue({ data: { name: 'contrato.pdf', mimeType: 'application/pdf', webViewLink: 'https://drive.google.com/pdf1' } });
+
+            const [result] = await enrichDriveActivitySummary(pdfSummary, 'token');
+
+            expect(result.app).toBeNull();
+            expect(result.webViewLink).toBe('https://drive.google.com/pdf1');
+        });
+
+        test('Preserva conteos del resumen original en cada entrada enriquecida', async () => {
+            mockFilesGet.mockResolvedValue({ data: { name: 'Doc', mimeType: 'application/vnd.google-apps.document', webViewLink: 'https://x' } });
+
+            const result = await enrichDriveActivitySummary([baseSummary[0]], 'token');
+
+            expect(result[0].editCount).toBe(2);
+            expect(result[0].commentCount).toBe(1);
+            expect(result[0].shareCount).toBe(0);
+            expect(result[0].totalActions).toBe(3);
+        });
+
+        test('Si files.get falla para un archivo, conserva los datos del resumen y app: null', async () => {
+            mockFilesGet
+                .mockRejectedValueOnce(new Error('403 Forbidden'))
+                .mockResolvedValueOnce({ data: { name: 'Planilla OK', mimeType: 'application/vnd.google-apps.spreadsheet', webViewLink: 'https://x' } });
+
+            const result = await enrichDriveActivitySummary(baseSummary, 'token');
+
+            // El primer archivo falla: conserva datos originales
+            expect(result[0].fileId).toBe('doc1');
+            expect(result[0].title).toBe('Viejo título');
+            expect(result[0].webViewLink).toBeNull();
+            expect(result[0].app).toBeNull();
+
+            // El segundo archivo se enriquece correctamente
+            expect(result[1].title).toBe('Planilla OK');
+            expect(result[1].app).toBe('Google Sheets');
+        });
+
+        test('Loguea un warn por cada archivo que no se pudo enriquecer', async () => {
+            mockFilesGet.mockRejectedValue(new Error('404 Not Found'));
+
+            await enrichDriveActivitySummary([baseSummary[0]], 'token');
+
+            expect(logger.warn).toHaveBeenCalledWith(
+                'No se pudo obtener metadata del archivo de Drive',
+                expect.objectContaining({ fileId: 'doc1' }),
+            );
+        });
+
+        test('Sanea el nombre fresco del archivo antes de asignarlo como title', async () => {
+            mockFilesGet.mockResolvedValue({
+                data: { name: `Doc\x00\x07umento${'C'.repeat(5000)}`, mimeType: 'application/vnd.google-apps.document', webViewLink: 'https://x' },
+            });
+
+            const [result] = await enrichDriveActivitySummary([baseSummary[0]], 'token');
+
+            // eslint-disable-next-line no-control-regex
+            expect(result.title).not.toMatch(/[\x00-\x08\x0E-\x1F\x7F]/);
+            expect(result.title.length).toBeLessThanOrEqual(200);
         });
     });
 });
