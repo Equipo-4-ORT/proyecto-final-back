@@ -9,6 +9,7 @@ jest.mock('../../../src/modules/admin/admin.service', () => {
         createUser: jest.fn(),
         listUsers: jest.fn(),
         toggleUserStatus: jest.fn(),
+        updateUser: jest.fn(),
         UserAlreadyExistsError,
         UserNotFoundError,
     };
@@ -22,8 +23,8 @@ jest.mock('../../../src/modules/auth/auth.service', () => ({
     asignarRol: jest.fn(() => 'EMPLOYEE'),
 }));
 
-const { postUser, getUsers, patchUserStatus } = require('../../../src/modules/admin/admin.controller');
-const { createUser, listUsers, toggleUserStatus, UserAlreadyExistsError, UserNotFoundError } =
+const { postUser, getUsers, patchUserStatus, editUser } = require('../../../src/modules/admin/admin.controller');
+const { createUser, listUsers, toggleUserStatus, updateUser, UserAlreadyExistsError, UserNotFoundError } =
     require('../../../src/modules/admin/admin.service');
 const { asignarRol } = require('../../../src/modules/auth/auth.service');
 
@@ -152,6 +153,94 @@ describe('patchUserStatus', () => {
         toggleUserStatus.mockRejectedValue(new Error('DB caída'));
 
         await patchUserStatus(req, res);
+
+        expect(res.status).toHaveBeenCalledWith(500);
+    });
+});
+
+describe('editUser', () => {
+    test('responde 400 si el email tiene formato inválido', async () => {
+        req.params.id = 'uuid-1';
+        req.body = { email: 'no-es-un-email' };
+
+        await editUser(req, res);
+
+        expect(res.status).toHaveBeenCalledWith(400);
+        expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('email') }));
+        expect(updateUser).not.toHaveBeenCalled();
+    });
+
+    test('responde 400 si el body viene vacío (ningún campo para actualizar)', async () => {
+        req.params.id = 'uuid-1';
+        req.body = {};
+
+        await editUser(req, res);
+
+        expect(res.status).toHaveBeenCalledWith(400);
+        expect(updateUser).not.toHaveBeenCalled();
+    });
+
+    test('responde 400 si fullName viene vacío o solo espacios', async () => {
+        req.params.id = 'uuid-1';
+        req.body = { fullName: '   ' };
+
+        await editUser(req, res);
+
+        expect(res.status).toHaveBeenCalledWith(400);
+        expect(updateUser).not.toHaveBeenCalled();
+    });
+
+    test('descarta el role enviado por el cliente y no lo pasa al service', async () => {
+        req.params.id = 'uuid-1';
+        req.body = { fullName: 'Ana García', role: 'ADMIN' };
+        updateUser.mockResolvedValue(MOCK_USER);
+
+        await editUser(req, res);
+
+        expect(updateUser).toHaveBeenCalledWith('uuid-1', { fullName: 'Ana García' });
+        expect(updateUser).not.toHaveBeenCalledWith('uuid-1', expect.objectContaining({ role: expect.anything() }));
+        expect(res.status).toHaveBeenCalledWith(200);
+    });
+
+    test('responde 200 con el usuario actualizado', async () => {
+        req.params.id = 'uuid-1';
+        req.body = { fullName: 'Ana Actualizada', email: 'nueva@empresa.com' };
+        const updated = { ...MOCK_USER, fullName: 'Ana Actualizada', email: 'nueva@empresa.com' };
+        updateUser.mockResolvedValue(updated);
+
+        await editUser(req, res);
+
+        expect(updateUser).toHaveBeenCalledWith('uuid-1', { fullName: 'Ana Actualizada', email: 'nueva@empresa.com' });
+        expect(res.status).toHaveBeenCalledWith(200);
+        expect(res.json).toHaveBeenCalledWith(updated);
+    });
+
+    test('responde 404 si el usuario no existe', async () => {
+        req.params.id = 'id-inexistente';
+        req.body = { fullName: 'Ana' };
+        updateUser.mockRejectedValue(new UserNotFoundError('id-inexistente'));
+
+        await editUser(req, res);
+
+        expect(res.status).toHaveBeenCalledWith(404);
+    });
+
+    test('responde 409 si el email ya pertenece a otro usuario', async () => {
+        req.params.id = 'uuid-1';
+        req.body = { email: 'ocupado@empresa.com' };
+        updateUser.mockRejectedValue(new UserAlreadyExistsError('ocupado@empresa.com'));
+
+        await editUser(req, res);
+
+        expect(res.status).toHaveBeenCalledWith(409);
+    });
+
+    test('responde 500 ante error inesperado', async () => {
+        req.params.id = 'uuid-1';
+        req.body = { fullName: 'Ana' };
+        updateUser.mockRejectedValue(new Error('DB caída'));
+
+        await editUser(req, res);
 
         expect(res.status).toHaveBeenCalledWith(500);
     });
