@@ -1,5 +1,5 @@
-const { getReportsHistory } = require('../../../../src/modules/reports/reports.service');
-const prisma = require('../../../../src/shared/database/prisma');
+const { getReportsHistory } = require('../../../src/modules/reports/reports.service');
+const prisma = require('../../../src/shared/database/prisma');
 
 // Mockeamos Prisma
 jest.mock('../../../../src/shared/database/prisma', () => ({

@@ -1,7 +1,8 @@
 const express = require('express');
-const router = express.Router();
+const { authMiddleware } = require('../../shared/middleware');
 const { getReports } = require('./reports.controller');
-const authMiddleware = require('../../shared/middleware/authMiddleware');
+
+const router = express.Router();
 
 router.get('/', authMiddleware, getReports);
 

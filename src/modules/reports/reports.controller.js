@@ -5,17 +5,16 @@ const getReports = async (req, res) => {
     try {
         const userId = req.user.id;
 
-        const{ page, limit, from, to } = req.query;
+        const { page, limit, from, to } = req.query;
         const result = await getReportsHistory(userId, { page, limit, from, to });
         return res.status(200).json(result);
-        
     } catch (error) {
-        // Atrapamos el error de validación que tira nuestro servicio
-        if (error.message.includes('inválido')) {
-            return res.status(400).json({ error: error.message });
+        // ReportValidationError trae statusCode 400
+        if (error.statusCode) {
+            return res.status(error.statusCode).json({ error: error.message });
         }
-        
-        console.error('Error obteniendo el historial de reportes:', error);
+
+        logger.error('Error obteniendo el historial de reportes', { error });
         return res.status(500).json({ error: 'Ocurrió un error interno al obtener el historial.' });
     }
 };

@@ -13,8 +13,7 @@ app.use(requestLogger);
 
 // 2. Rate limiting
 app.use('/auth', authLimiter);
-app.use('/api', apiLimiter);
-app.use('/api/users', apiLimiter);
+app.use('/api', apiLimiter); // cubre /api/users, /api/reports, etc. — no duplicar por sub-ruta
 
 const authRoutes = require('./modules/auth/auth.routes');
 const userRoutes = require('./modules/users/users.routes');

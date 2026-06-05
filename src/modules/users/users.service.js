@@ -9,6 +9,14 @@ class UserValidationError extends Error {
   }
 }
 
+class UserNotFoundError extends Error {
+  constructor() {
+    super('Usuario no encontrado');
+    this.name = 'UserNotFoundError';
+    this.statusCode = 404;
+  }
+}
+
 class UnauthorizedUserError extends Error {
   constructor(email) {
     super('Tu cuenta no está habilitada. Contactá al administrador.');
@@ -65,7 +73,7 @@ const getUserSettings = async (userId) => {
     },
   });
 
-  if (!user) throw new Error('Usuario no encontrado');
+  if (!user) throw new UserNotFoundError();
 
   return user;
 };
@@ -88,12 +96,8 @@ if (workEndTime !== undefined) {
     dataToUpdate.workEndTime = workEndTime;
   }
 
-if (workStartTime && workEndTime) {
-    if (workStartTime >= workEndTime) {
-      throw new UserValidationError('La hora de fin debe ser mayor a la hora de inicio.');
-    }
-  }
-
+// No comparamos inicio vs fin: una jornada puede cruzar la medianoche
+// (ej. turno nocturno 21:00 -> 02:00), así que fin < inicio es válido.
 
 if (avoidOverlaps !== undefined) {
     if (typeof avoidOverlaps !== 'boolean') {
@@ -120,9 +124,10 @@ return updatedUser;
 
 
 module.exports = {
-  loginGoogleUser, 
+  loginGoogleUser,
   UnauthorizedUserError,
   getUserSettings,
   updateUserSettings,
-  UserValidationError
-   };
+  UserValidationError,
+  UserNotFoundError,
+};
