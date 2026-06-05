@@ -440,8 +440,8 @@ describe('Drive Activity Service', () => {
             await enrichDriveActivitySummary(baseSummary, 'token');
 
             expect(mockFilesGet).toHaveBeenCalledTimes(2);
-            expect(mockFilesGet).toHaveBeenCalledWith({ fileId: 'doc1', fields: 'id,name,mimeType,webViewLink' });
-            expect(mockFilesGet).toHaveBeenCalledWith({ fileId: 'sheet1', fields: 'id,name,mimeType,webViewLink' });
+            expect(mockFilesGet).toHaveBeenCalledWith({ fileId: 'doc1', fields: 'name,mimeType,webViewLink', supportsAllDrives: true });
+            expect(mockFilesGet).toHaveBeenCalledWith({ fileId: 'sheet1', fields: 'name,mimeType,webViewLink', supportsAllDrives: true });
         });
 
         test('Enriquece title con el nombre fresco de la Drive API', async () => {
@@ -500,22 +500,32 @@ describe('Drive Activity Service', () => {
             expect(result[0].totalActions).toBe(3);
         });
 
-        test('Si files.get falla para un archivo, conserva los datos del resumen y app: null', async () => {
+        test('Si files.get falla, conserva los datos del resumen y deriva app del mimeType del resumen', async () => {
             mockFilesGet
                 .mockRejectedValueOnce(new Error('403 Forbidden'))
                 .mockResolvedValueOnce({ data: { name: 'Planilla OK', mimeType: 'application/vnd.google-apps.spreadsheet', webViewLink: 'https://x' } });
 
             const result = await enrichDriveActivitySummary(baseSummary, 'token');
 
-            // El primer archivo falla: conserva datos originales
+            // El primer archivo falla: conserva datos originales y deriva app del mimeType del resumen
             expect(result[0].fileId).toBe('doc1');
             expect(result[0].title).toBe('Viejo título');
             expect(result[0].webViewLink).toBeNull();
-            expect(result[0].app).toBeNull();
+            expect(result[0].app).toBe('Google Docs');
 
             // El segundo archivo se enriquece correctamente
             expect(result[1].title).toBe('Planilla OK');
             expect(result[1].app).toBe('Google Sheets');
+        });
+
+        test('Deriva app y mimeType del resumen si la API responde OK pero sin mimeType', async () => {
+            // files.get resuelve sin mimeType: se usa el del resumen para mimeType y app.
+            mockFilesGet.mockResolvedValue({ data: { name: 'Doc', webViewLink: 'https://x' } });
+
+            const [result] = await enrichDriveActivitySummary([baseSummary[0]], 'token');
+
+            expect(result.mimeType).toBe('application/vnd.google-apps.document');
+            expect(result.app).toBe('Google Docs');
         });
 
         test('Loguea un warn por cada archivo que no se pudo enriquecer', async () => {
