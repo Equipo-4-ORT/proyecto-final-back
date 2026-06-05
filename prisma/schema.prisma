@@ -39,6 +39,9 @@ model User {
   fullName      String?  @map("full_name")
   role          Role     @default(EMPLOYEE)
   googleId      String?  @unique @map("google_id")
+  workStartTime   String   @default("09:00") @map("work_start_time")
+  workEndTime     String   @default("18:00") @map("work_end_time")
+  avoidOverlaps   Boolean  @default(false) @map("avoid_overlaps")
   refreshToken  String?  @map("refresh_token") // Lo guardaremos encriptado luego
   status        UserStatus @default(ACTIVE)
   // —— Jira (integración F2B) ——
@@ -106,6 +109,7 @@ model Report {
   id           String   @id @default(uuid())
   userId       String   @map("user_id")
   reportDate   DateTime @db.Date @map("report_date")
+  totalHours   Float?       @map("total_hours")
   xlsxUrl      String?  @db.VarChar(255) @map("xlsx_url")
   sentAt       DateTime? @map("sent_at")
   status       ReportStatus @default(PENDING)

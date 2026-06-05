@@ -59,4 +59,30 @@ const toggleUserStatus = async (id) => {
   });
 };
 
-module.exports = { createUser, listUsers, toggleUserStatus, UserAlreadyExistsError, UserNotFoundError };
+const updateUser = async (id, { fullName, email }) => {
+  const user = await prisma.user.findUnique({ where: { id } });
+  if (!user) throw new UserNotFoundError(id);
+
+  // El role NO es editable desde este endpoint: el único admin se crea por el bootstrap con la key.
+  const dataToUpdate = {};
+  if (fullName !== undefined) dataToUpdate.fullName = fullName;
+
+  if (email !== undefined) {
+    const normalizedEmail = email.toLowerCase().trim();
+    const existing = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+    if (existing && existing.id !== id) {
+      throw new UserAlreadyExistsError(normalizedEmail);
+    }
+    dataToUpdate.email = normalizedEmail;
+  }
+
+  const updatedUser = await prisma.user.update({
+    where: { id },
+    data: dataToUpdate,
+    select: { id: true, fullName: true, email: true, role: true, status: true, createdAt: true },
+  });
+  logger.info('Admin actualizó usuario', { id, email: updatedUser.email, role: updatedUser.role });
+  return updatedUser;
+};
+
+module.exports = { createUser, listUsers, toggleUserStatus, updateUser, UserAlreadyExistsError, UserNotFoundError };
