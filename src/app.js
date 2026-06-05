@@ -13,12 +13,12 @@ app.use(requestLogger);
 
 // 2. Rate limiting
 app.use('/auth', authLimiter);
-app.use('/api', apiLimiter);
+app.use('/api', apiLimiter); // cubre /api/users, /api/reports, etc. — no duplicar por sub-ruta
 
 const authRoutes = require('./modules/auth/auth.routes');
 const userRoutes = require('./modules/users/users.routes');
 app.use('/auth', authRoutes);
-app.use('/users', userRoutes);
+app.use('/api/users', userRoutes);
 const jiraRoutes = require('./modules/jira/jira.routes');
 app.use('/api/jira', jiraRoutes);
 
@@ -27,6 +27,10 @@ app.use('/api/admin', adminRoutes);
 
 const activitiesRoutes = require('./modules/activities/activities.routes');
 app.use('/api/activities', activitiesRoutes);
+
+
+const reportsRoutes = require('./modules/reports/reports.routes');
+app.use('/api/reports', reportsRoutes);
 
 const driveActivityRoutes = require('./modules/drive/drive-activity.routes');
 app.use('/api/drive', driveActivityRoutes);
