@@ -1,14 +1,12 @@
 const OpenAI = require('openai');
 const AIAdapter = require('../ai.interface');
+const { sanitizeForPrompt, sanitizeObjectForExcel } = require('../ai.sanitize');
+const { validateAIModuleOutput, validateUserContext } = require('../ai.schemas');
+const { generateSummaryPrompt } = require('../prompts/summary.prompt');
 
 /**
  * Adapter de OpenAI. Implementa la interfaz AIAdapter usando la API
  * oficial de OpenAI.
- *
- * Configuración: requiere `OPENAI_API_KEY` en el entorno. La validación
- * ocurre al construir la instancia (no al cargar el módulo), de modo
- * que las empresas que elijan otro provider (Bedrock, Gemini, etc.) no
- * necesiten tener seteada esta variable.
  */
 
 let cachedClient = null;
@@ -34,27 +32,12 @@ const getDefaultClient = () => {
 };
 
 class OpenAIAdapter extends AIAdapter {
-    /**
-     * @param {OpenAI} [client] - Cliente inyectable para testing. Si no se
-     *   provee, se usa un singleton lazy compartido entre instancias.
-     */
     constructor(client) {
         super();
         this.client = client || getDefaultClient();
     }
 
-    /**
-     * Genera un resumen usando OpenAI.
-     * @async
-     * @param {Array<Activity>} activities - Actividades del día
-     * @param {UserContext} userContext - Contexto del usuario
-     * @returns {Promise<AIModuleOutput>} Resumen estructurado
-     */
     async generateSummary(activities, userContext) {
-        const { sanitizeForPrompt, sanitizeObjectForExcel } = require('../ai.sanitize');
-        const { validateAIModuleOutput } = require('../ai.schemas');
-        const { generateSummaryPrompt } = require('../prompts/summary.prompt');
-
         if (!activities || !Array.isArray(activities) || activities.length === 0) {
             throw new Error('Activities array cannot be empty', { cause: new Error('Invalid input') });
         }
@@ -62,6 +45,9 @@ class OpenAIAdapter extends AIAdapter {
         if (!userContext) {
             throw new Error('UserContext is required', { cause: new Error('Invalid input') });
         }
+
+        // Validación de contexto que vino de develop
+        const validatedContext = validateUserContext(userContext);
 
         const sanitizedActivities = activities.map((activity) => ({
             ...activity,
@@ -72,14 +58,15 @@ class OpenAIAdapter extends AIAdapter {
             },
         }));
 
-        const { systemPrompt, userPrompt } = generateSummaryPrompt(sanitizedActivities, userContext);
+        // Tu prompt extraído usando el contexto validado
+        const { systemPrompt, userPrompt } = generateSummaryPrompt(sanitizedActivities, validatedContext);
 
         try {
             const response = await this.client.chat.completions.create({
                 model: 'gpt-4o-mini',
                 max_tokens: 2048,
                 temperature: 0.2,
-                response_format: { type: "json_object" },
+                response_format: { type: 'json_object' },
                 messages: [
                     {
                         role: 'system',
@@ -98,9 +85,17 @@ class OpenAIAdapter extends AIAdapter {
 
             const responseText = response.choices[0].message.content;
 
+            if (!responseText) {
+                throw new Error('Empty content from OpenAI', { cause: new Error('API response validation failed') });
+            }
+
+            // Fallback defensivo que vino de develop
+            const jsonMatch = responseText.match(/```json\s*([\s\S]*?)\s*```/);
+            const jsonStr = jsonMatch ? jsonMatch[1] : responseText;
+
             let parsedOutput;
             try {
-                parsedOutput = JSON.parse(responseText);
+                parsedOutput = JSON.parse(jsonStr);
             } catch (parseError) {
                 throw new Error(`Invalid JSON from OpenAI: ${parseError.message}`, { cause: parseError });
             }
@@ -118,7 +113,7 @@ class OpenAIAdapter extends AIAdapter {
                 throw new Error(`OpenAI authentication failed: Invalid API key`, { cause: error });
             }
 
-            if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
+            if (error.code === 'ECONNABORTED' || (error.message && error.message.includes('timeout'))) {
                 throw new Error(`OpenAI request timeout: ${error.message}`, { cause: error });
             }
 
@@ -127,7 +122,6 @@ class OpenAIAdapter extends AIAdapter {
     }
 }
 
-// Exportado solo para tests (reset entre casos que mutan OPENAI_API_KEY).
 const _resetClientForTests = () => {
     cachedClient = null;
 };

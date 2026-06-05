@@ -316,7 +316,13 @@ const toJqlEpoch = (date) => new Date(date).getTime();
 const MAX_SEARCH_PAGES = 200;
 
 /**
- * Issues asignados al usuario actual, actualizados dentro de la ventana, paginado.
+ * Issues en los que el usuario actual PARTICIPA, actualizados dentro de la ventana, paginado.
+ *
+ * "Participa" = es assignee, reporter, creator o autor de algún worklog. No alcanza con
+ * `assignee = currentUser()`: si el usuario crea un ticket y lo asigna a otra persona, o
+ * loguea trabajo en un ticket ajeno, el ticket no aparecería y sus acciones (transición,
+ * comentario, worklog del propio usuario) se perderían. El mapper igual filtra por autor,
+ * así que ampliar el SET de tickets inspeccionados no atribuye acciones de terceros.
  *
  * Usa `GET /rest/api/3/search/jql` (el viejo `/search` fue retirado por Atlassian
  * en octubre 2025 — devuelve 410 Gone). Paginación por token: la respuesta trae
@@ -325,7 +331,8 @@ const MAX_SEARCH_PAGES = 200;
  * @returns {Promise<Array<object>>} issues con `{ key, fields }`.
  */
 const searchIssuesUpdatedInRange = async (cloudId, accessToken, dateStart, dateEnd) => {
-    const jql = `assignee = currentUser() AND updated >= ${toJqlEpoch(dateStart)} AND updated < ${toJqlEpoch(dateEnd)} ORDER BY updated ASC`;
+    const participates = '(assignee = currentUser() OR reporter = currentUser() OR creator = currentUser() OR worklogAuthor = currentUser())';
+    const jql = `${participates} AND updated >= ${toJqlEpoch(dateStart)} AND updated < ${toJqlEpoch(dateEnd)} ORDER BY updated ASC`;
     const issues = [];
     let nextPageToken = null;
     let pages = 0;
@@ -334,7 +341,8 @@ const searchIssuesUpdatedInRange = async (cloudId, accessToken, dateStart, dateE
         const query = new URLSearchParams({
             jql,
             maxResults: String(SEARCH_PAGE_SIZE),
-            fields: 'summary,status,project,updated',
+            // `created`/`creator` permiten detectar tickets que el usuario creó dentro de la ventana.
+            fields: 'summary,status,project,updated,created,creator',
         });
         if (nextPageToken) {
             query.set('nextPageToken', nextPageToken);

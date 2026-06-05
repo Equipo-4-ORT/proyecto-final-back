@@ -77,8 +77,8 @@ class AIAdapter {
      * // output = { daySummary: "...", rows: [...], totalHours: 8 }
      */
     async generateSummary() {
-    throw new AbstractMethodError('generateSummary');
-}
+        throw new AbstractMethodError('generateSummary');
+    }
 }
 
 module.exports = AIAdapter;

@@ -3,7 +3,7 @@ const { randomBytes } = require('crypto');
 const { OAuth2Client } = require('google-auth-library');
 const logger = require('../../shared/utils/logger');
 const { verifyGoogleToken } = require('../google/google.service');
-const { loginGoogleUser, UnauthorizedUserError } = require('../users/users.service');
+const { loginGoogleUser } = require('../users/users.service');
 const { encrypt } = require('../../shared/utils/crypto');
 const prisma = require('../../shared/database/prisma');
 

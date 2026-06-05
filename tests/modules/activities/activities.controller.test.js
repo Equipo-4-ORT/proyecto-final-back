@@ -5,6 +5,9 @@ jest.mock('../../../src/modules/activities/activities.service', () => {
     class ActivityForbiddenError extends Error {
         constructor() { super('No tenés permiso'); this.name = 'ActivityForbiddenError'; this.statusCode = 403; }
     }
+    class InvalidTimezoneError extends Error {
+        constructor(tz) { super(`Timezone inválida: "${tz}"`); this.name = 'InvalidTimezoneError'; this.statusCode = 400; }
+    }
     return {
         listActivities: jest.fn(),
         createActivity: jest.fn(),
@@ -12,6 +15,7 @@ jest.mock('../../../src/modules/activities/activities.service', () => {
         deleteActivity: jest.fn(),
         ActivityNotFoundError,
         ActivityForbiddenError,
+        InvalidTimezoneError,
     };
 });
 jest.mock('../../../src/shared/utils/logger', () => ({
@@ -20,7 +24,7 @@ jest.mock('../../../src/shared/utils/logger', () => ({
 
 const { getActivities, postActivity, putActivity, deleteActivityHandler } =
     require('../../../src/modules/activities/activities.controller');
-const { listActivities, createActivity, updateActivity, deleteActivity, ActivityNotFoundError, ActivityForbiddenError } =
+const { listActivities, createActivity, updateActivity, deleteActivity, ActivityNotFoundError, ActivityForbiddenError, InvalidTimezoneError } =
     require('../../../src/modules/activities/activities.service');
 
 const MOCK_ACTIVITY = {
@@ -35,17 +39,60 @@ let req, res;
 beforeEach(() => {
     jest.clearAllMocks();
     res = { status: jest.fn().mockReturnThis(), json: jest.fn(), send: jest.fn() };
-    req = { user: { id: 'user-1' }, body: {}, params: {} };
+    req = { user: { id: 'user-1' }, body: {}, params: {}, query: {} };
 });
 
 describe('getActivities', () => {
-    test('responde 200 con la lista de actividades', async () => {
+    test('responde 200 con la lista de actividades sin filtros', async () => {
         listActivities.mockResolvedValue([MOCK_ACTIVITY]);
 
         await getActivities(req, res);
 
         expect(res.status).toHaveBeenCalledWith(200);
         expect(res.json).toHaveBeenCalledWith([MOCK_ACTIVITY]);
+        expect(listActivities).toHaveBeenCalledWith('user-1', { date: undefined, timezone: undefined, source: undefined });
+    });
+
+    test('responde 400 si date tiene formato inválido', async () => {
+        req.query = { date: '24-05-2025', timezone: 'America/Argentina/Buenos_Aires' };
+
+        await getActivities(req, res);
+
+        expect(res.status).toHaveBeenCalledWith(400);
+        expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('YYYY-MM-DD') }));
+    });
+
+    test('responde 400 si se provee date sin timezone', async () => {
+        req.query = { date: '2025-05-24' };
+
+        await getActivities(req, res);
+
+        expect(res.status).toHaveBeenCalledWith(400);
+        expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('timezone') }));
+    });
+
+    test('responde 400 si el service lanza InvalidTimezoneError', async () => {
+        req.query = { date: '2025-05-24', timezone: 'Zona/Invalida' };
+        listActivities.mockRejectedValue(new InvalidTimezoneError('Zona/Invalida'));
+
+        await getActivities(req, res);
+
+        expect(res.status).toHaveBeenCalledWith(400);
+        expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ error: 'InvalidTimezoneError' }));
+    });
+
+    test('llama a listActivities con todos los filtros cuando se proveen', async () => {
+        req.query = { date: '2025-05-24', timezone: 'America/Argentina/Buenos_Aires', source: 'drive' };
+        listActivities.mockResolvedValue([]);
+
+        await getActivities(req, res);
+
+        expect(listActivities).toHaveBeenCalledWith('user-1', {
+            date: '2025-05-24',
+            timezone: 'America/Argentina/Buenos_Aires',
+            source: 'drive',
+        });
+        expect(res.status).toHaveBeenCalledWith(200);
     });
 
     test('responde 500 ante error inesperado', async () => {
