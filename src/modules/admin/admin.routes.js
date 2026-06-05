@@ -15,6 +15,6 @@ router.post('/users', postUser);
 router.get('/users', getUsers);
 router.patch('/users/:id/status', patchUserStatus);
 
-router.put('/users/:id', editUser);
+router.patch('/users/:id', editUser);
 
 module.exports = router;

@@ -7,23 +7,15 @@ const {
   UserNotFoundError,
 } = require('./admin.service');
 const { asignarRol } = require('../auth/auth.service');
+const { createUserSchema, updateUserSchema } = require('./admin.validation');
 const logger = require('../../shared/utils/logger');
 
 const postUser = async (req, res) => {
-  const { fullName, email } = req.body;
-
-  if (!fullName || !email) {
-    return res
-      .status(400)
-      .json({ error: 'Bad Request', message: 'fullName y email son requeridos' });
+  const parsed = createUserSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Bad Request', message: parsed.error.issues[0].message });
   }
-
-  const emailRegex = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;
-  if (!emailRegex.test(email)) {
-    return res
-      .status(400)
-      .json({ error: 'Bad Request', message: 'El email no tiene un formato válido' });
-  }
+  const { fullName, email } = parsed.data;
 
   try {
     // El role lo determina la app, no el cliente: sin llave de admin => EMPLOYEE.
@@ -70,19 +62,15 @@ const patchUserStatus = async (req, res) => {
 
 const editUser = async (req, res) => {
   const { id } = req.params;
-  const { fullName, email, role } = req.body;
 
-  if (email) {
-    const emailRegex = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;
-    if (!emailRegex.test(email)) {
-      return res
-        .status(400)
-        .json({ error: 'Bad Request', message: 'El email no tiene un formato válido' });
-    }
+  const parsed = updateUserSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Bad Request', message: parsed.error.issues[0].message });
   }
 
   try {
-    const updatedUser= await updateUser(id, { fullName, email, role });
+    // role no se incluye a propósito: no es editable desde el front (lo descarta el schema).
+    const updatedUser = await updateUser(id, parsed.data);
     return res.status(200).json(updatedUser);
   } catch (error) {
     if (error instanceof UserNotFoundError || error instanceof UserAlreadyExistsError) {
@@ -93,8 +81,6 @@ const editUser = async (req, res) => {
       .status(500)
       .json({ error: 'Internal Server Error', message: 'No se pudo actualizar el usuario' });
   }
-}
-
-
+};
 
 module.exports = { postUser, getUsers, patchUserStatus, editUser };
