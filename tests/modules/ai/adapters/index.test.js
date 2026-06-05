@@ -1,48 +1,40 @@
-const { getAdapter, adapters } = require('../../../../src/modules/ai/adapters');
-const OpenAIAdapter = require('../../../../src/modules/ai/adapters/openai.adapter');
+const { getAdapter, adapters } = require('../../../../src/modules/ai/adapters/index');
+const GeminiAdapter = require('../../../../src/modules/ai/adapters/gemini.adapter');
 
 describe('AI adapters registry', () => {
-    const originalEnv = process.env.OPENAI_API_KEY;
-    const originalProvider = process.env.AI_PROVIDER;
+    const originalEnv = process.env.AI_PROVIDER;
 
     beforeEach(() => {
-        OpenAIAdapter._resetClientForTests();
-        process.env.OPENAI_API_KEY = 'test-key';
+        jest.clearAllMocks();
     });
 
     afterAll(() => {
-        if (originalEnv === undefined) delete process.env.OPENAI_API_KEY;
-        else process.env.OPENAI_API_KEY = originalEnv;
-
-        if (originalProvider === undefined) delete process.env.AI_PROVIDER;
-        else process.env.AI_PROVIDER = originalProvider;
-
-        OpenAIAdapter._resetClientForTests();
+        process.env.AI_PROVIDER = originalEnv;
     });
 
-    test('expone openai como provider soportado', () => {
-        expect(adapters).toHaveProperty('openai');
+    test('expone gemini como provider soportado', () => {
+        expect(adapters).toHaveProperty('gemini');
     });
 
-    test('getAdapter("openai") devuelve una instancia de OpenAIAdapter', () => {
-        const adapter = getAdapter('openai');
-        expect(adapter).toBeInstanceOf(OpenAIAdapter);
+    test('getAdapter("gemini") devuelve una instancia de GeminiAdapter', () => {
+        const adapter = getAdapter('gemini');
+        expect(adapter).toBeInstanceOf(GeminiAdapter);
     });
 
     test('getAdapter() sin args usa AI_PROVIDER del env', () => {
-        process.env.AI_PROVIDER = 'openai';
+        process.env.AI_PROVIDER = 'gemini';
         const adapter = getAdapter();
-        expect(adapter).toBeInstanceOf(OpenAIAdapter);
+        expect(adapter).toBeInstanceOf(GeminiAdapter);
     });
 
-    test('getAdapter() defaultea a "openai" si AI_PROVIDER no está seteado', () => {
+    test('getAdapter() defaultea a "gemini" si AI_PROVIDER no está seteado', () => {
         delete process.env.AI_PROVIDER;
         const adapter = getAdapter();
-        expect(adapter).toBeInstanceOf(OpenAIAdapter);
+        expect(adapter).toBeInstanceOf(GeminiAdapter);
     });
 
     test('getAdapter("provider-inexistente") lanza error con la lista de soportados', () => {
         expect(() => getAdapter('bedrock')).toThrow(/no soportado/);
-        expect(() => getAdapter('bedrock')).toThrow(/openai/);
+        expect(() => getAdapter('bedrock')).toThrow(/gemini/);
     });
 });
