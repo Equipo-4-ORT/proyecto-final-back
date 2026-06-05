@@ -2,7 +2,7 @@ const { getReportsHistory } = require('../../../src/modules/reports/reports.serv
 const prisma = require('../../../src/shared/database/prisma');
 
 // Mockeamos Prisma
-jest.mock('../../../../src/shared/database/prisma', () => ({
+jest.mock('../../../src/shared/database/prisma', () => ({
   report: {
     count: jest.fn(),
     findMany: jest.fn()
