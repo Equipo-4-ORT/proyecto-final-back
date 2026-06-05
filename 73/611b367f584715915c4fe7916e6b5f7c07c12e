@@ -1,0 +1,37 @@
+src/modules/reports/reports.service.js
+  s_a6736256d38cb9::t_718119f3555b27 3-9,11,25,32,38,44-45,47-48,53,55-56,62-63,69-70
+src/modules/reports/reports.controller.js
+  s_a6736256d38cb9::t_fd3becee3cff45 8,12-14,16-17,24
+src/modules/users/users.service.js
+  s_a6736256d38cb9::t_92f620a629eae4 12-19
+  s_a6736256d38cb9::t_049fb8e5209fd8 127,131-133
+  s_a6736256d38cb9::t_1d7b8225277409 76
+  s_a6736256d38cb9::t_75535b4b311a2b 99-100
+src/modules/reports/reports.routes.js
+  s_a6736256d38cb9::t_51b589cc9e60cf 2,4-5,9
+src/modules/users/users.routes.js
+  s_a6736256d38cb9::t_230fcfdf3458ab 7,10-11
+tests/modules/reports/reports.service.test.js
+  s_a6736256d38cb9::t_b8372b2d9efa86 71
+  s_a6736256d38cb9::t_f03909169f662a 1-2
+src/app.js
+  s_a6736256d38cb9::t_cd0ead86131de5 16
+src/modules/users/users.controller.js
+  s_a6736256d38cb9::t_e9a0727591af5e 2,10-14,24-28,31-36,43
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.3",
+  "base_commit_sha": "73611b367f584715915c4fe7916e6b5f7c07c12e",
+  "prompts": {},
+  "sessions": {
+    "s_a6736256d38cb9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8432d593-582d-43f6-8bbd-7a43fa12e6c7",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "LicFuraca <martinexequield@gmail.com>"
+    }
+  }
+}
