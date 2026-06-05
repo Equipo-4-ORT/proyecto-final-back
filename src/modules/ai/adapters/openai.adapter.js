@@ -21,7 +21,7 @@ const buildClient = () => {
     }
     return new OpenAI({
         apiKey: process.env.OPENAI_API_KEY,
-        timeout: 30000, // 30 segundos
+        timeout: 30000,
         maxRetries: 3,
     });
 };
@@ -53,6 +53,7 @@ class OpenAIAdapter extends AIAdapter {
     async generateSummary(activities, userContext) {
         const { sanitizeForPrompt, sanitizeObjectForExcel } = require('../ai.sanitize');
         const { validateAIModuleOutput } = require('../ai.schemas');
+        const { generateSummaryPrompt } = require('../prompts/summary.prompt');
 
         if (!activities || !Array.isArray(activities) || activities.length === 0) {
             throw new Error('Activities array cannot be empty', { cause: new Error('Invalid input') });
@@ -71,55 +72,14 @@ class OpenAIAdapter extends AIAdapter {
             },
         }));
 
-        const systemPrompt = `You are an AI assistant that summarizes work activities into a structured daily report.
-
-Your task is to:
-1. Analyze a list of activities from a user's workday
-2. Group related activities by time and application
-3. Generate a professional executive summary
-4. Return a JSON object with the exact structure specified below
-
-IMPORTANT:
-- All times must be in HH:mm format (24-hour)
-- Duration must be in minutes (integer)
-- All strings must be sanitized (no formula injection chars: =, +, -, @)
-- Return ONLY valid JSON, no additional text
-- Dates must be in YYYY-MM-DD format
-
-Expected JSON structure:
-{
-  "daySummary": "2-3 sentence executive summary of the entire day",
-  "rows": [
-    {
-      "date": "YYYY-MM-DD",
-      "startTime": "HH:mm",
-      "endTime": "HH:mm",
-      "duration": <number in minutes>,
-      "source": "calendar|drive|jira",
-      "app": "Meet|Docs|Sheets|Drive|Jira|...",
-      "activityType": "meeting|edit|transition|...",
-      "title": "activity title",
-      "description": "optional description",
-      "summary": "brief summary of what was done"
-    }
-  ],
-  "totalHours": <number of total hours worked>
-}`;
-
-        const userPrompt = `User: ${sanitizeForPrompt(userContext.name)}
-Role: ${sanitizeForPrompt(userContext.role)}
-Date: ${userContext.date instanceof Date ? userContext.date.toISOString().split('T')[0] : userContext.date}
-
-Activities:
-${JSON.stringify(sanitizedActivities, null, 2)}
-
-Please generate the daily report summary.`;
+        const { systemPrompt, userPrompt } = generateSummaryPrompt(sanitizedActivities, userContext);
 
         try {
             const response = await this.client.chat.completions.create({
                 model: 'gpt-4o-mini',
                 max_tokens: 2048,
-                temperature: 0.7,
+                temperature: 0.2,
+                response_format: { type: "json_object" },
                 messages: [
                     {
                         role: 'system',
@@ -138,19 +98,14 @@ Please generate the daily report summary.`;
 
             const responseText = response.choices[0].message.content;
 
-            // Intentar extraer JSON si está envuelto en markdown
-            let jsonMatch = responseText.match(/```json\s*([\s\S]*?)\s*```/);
-            let jsonStr = jsonMatch ? jsonMatch[1] : responseText;
-
             let parsedOutput;
             try {
-                parsedOutput = JSON.parse(jsonStr);
+                parsedOutput = JSON.parse(responseText);
             } catch (parseError) {
                 throw new Error(`Invalid JSON from OpenAI: ${parseError.message}`, { cause: parseError });
             }
 
             const validatedOutput = validateAIModuleOutput(parsedOutput);
-
             const sanitizedOutput = sanitizeObjectForExcel(validatedOutput);
 
             return sanitizedOutput;
