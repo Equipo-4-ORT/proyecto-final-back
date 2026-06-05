@@ -42,8 +42,17 @@ const validateAIModuleOutput = (data) => {
     try {
         return AIModuleOutputSchema.parse(data);
     } catch (error) {
-        const messages = error.errors.map((e) => `${e.path.join('.')}: ${e.message}`);
-        throw new Error(`AIModuleOutput validation failed: ${messages.join('; ')}`, { cause: error });
+        if (error && (error.issues || error.errors)) {
+            const issueArray = error.issues || error.errors;
+            const messages = issueArray.map((e) => {
+                const path = e.path ? e.path.join('.') : 'unknown';
+                return `${path}: ${e.message}`;
+            });
+            throw new Error(`AIModuleOutput validation failed: ${messages.join('; ')}`, { cause: error });
+        }
+        
+        // Fallback genérico por si no es un error de Zod
+        throw new Error(`AIModuleOutput validation failed: ${error?.message || 'Unknown error'}`, { cause: error });
     }
 };
 

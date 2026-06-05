@@ -1,4 +1,4 @@
-const OpenAIAdapter = require('./openai.adapter');
+const GeminiAdapter = require('./gemini.adapter');
 
 /**
  * Registry de adapters de IA disponibles. La empresa que despliegue
@@ -15,10 +15,10 @@ const OpenAIAdapter = require('./openai.adapter');
  */
 
 const adapters = {
-    openai: OpenAIAdapter,
+    gemini: GeminiAdapter,
 };
 
-const getAdapter = (provider = process.env.AI_PROVIDER || 'openai') => {
+const getAdapter = (provider = process.env.AI_PROVIDER || 'gemini') => {
     const Adapter = adapters[provider];
     if (!Adapter) {
         const supported = Object.keys(adapters).join(', ');
