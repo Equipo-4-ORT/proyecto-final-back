@@ -1,0 +1,33 @@
+tests/modules/admin/admin.controller.test.js
+  s_06897063f7fa91::t_e6fbe47fd03602 12
+  s_06897063f7fa91::t_90c5bfeae161fe 26-27
+  s_06897063f7fa91::t_4f0483cd027bbe 160-247
+src/modules/admin/admin.service.js
+  s_06897063f7fa91::t_1ad4ee4d330c7e 62,66,86
+src/modules/admin/admin.validation.js
+  s_06897063f7fa91::t_5f6cd1c5242ea6 1-35
+src/modules/admin/admin.controller.js
+  s_06897063f7fa91::t_c9b702d745317f 10,14-16,18
+  s_06897063f7fa91::t_b9080b9d3acdc3 66-68,72-73,84
+src/modules/admin/admin.routes.js
+  s_06897063f7fa91::t_a140adf612ab7a 18
+tests/modules/admin/admin.service.test.js
+  s_06897063f7fa91::t_114430598b2ea3 99-168
+  s_06897063f7fa91::t_3b49876485672c 14
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.3",
+  "base_commit_sha": "eefd2aa23cbb4247fb3384d5b0c54acaea8b2d34",
+  "prompts": {},
+  "sessions": {
+    "s_06897063f7fa91": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e9a604e3-b1dc-4942-be12-999beac6bdec",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "LicFuraca <martinexequield@gmail.com>"
+    }
+  }
+}
