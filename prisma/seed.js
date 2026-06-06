@@ -11,6 +11,8 @@ async function main() {
     await tx.user.deleteMany();
 
     // 2. Crear un usuario de prueba (Empleado de Finnegans)
+    // Nota: Como agregaste los @default en el schema (Ticket 5.3.5), 
+    // este usuario ya nace con la jornada de 09:00 a 18:00 automáticamente.
     const user = await tx.user.create({
       data: {
         email: 'jperez@finnegans.com.ar',
@@ -65,16 +67,33 @@ async function main() {
 
     console.log('📅 Actividades de Calendar y Drive registradas.');
 
-    // 4. Crear un reporte preliminar generado por la IA (Timesheet)
-    await tx.report.create({
-      data: {
-        userId: user.id,
-        reportDate: new Date('2026-04-24T00:00:00Z'), // El reporte pertenece al viernes
-        status: 'PENDING', // Listo para que el usuario lo revise el lunes
-      },
+    // 4. Crear el historial de reportes (Seed para el Ticket 5.2.1)
+    console.log('📊 Generando 15 reportes para pruebas de paginación...');
+    
+    const reportsToInsert = [];
+    
+    // Le creamos 15 reportes falsos yendo hacia atrás en el tiempo
+    for (let i = 0; i < 15; i++) {
+      const date = new Date();
+      date.setDate(date.getDate() - (i * 7)); // Un reporte por semana hacia atrás
+
+      reportsToInsert.push({
+        userId: user.id, // Usamos el ID del usuario Juan Pérez que acabamos de crear arriba
+        reportDate: date,
+        totalHours: Math.floor(Math.random() * (45 - 35 + 1)) + 35, // Horas random entre 35 y 45
+        status: i % 3 === 0 ? 'PENDING' : 'SENT', // 1 de cada 3 estará pendiente
+        xlsxUrl: i % 3 === 0 ? null : `https://autolog-bucket.s3.amazonaws.com/reports/report-${i}.xlsx`,
+        sentAt: i % 3 === 0 ? null : new Date(),
+      });
+    }
+
+    // Usamos 'tx' en vez de 'prisma' para mantener la transacción segura
+    await tx.report.createMany({
+      data: reportsToInsert,
+      skipDuplicates: true,
     });
 
-    console.log('📝 Reporte automático creado y en estado pendiente.');
+    console.log(`📝 15 Reportes automáticos creados y asignados a ${user.fullName}.`);
   });
 
   console.log('✅ Seeding completado con éxito.');
