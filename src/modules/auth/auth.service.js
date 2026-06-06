@@ -1,4 +1,3 @@
-const jwt = require('jsonwebtoken');
 const { randomBytes } = require('crypto');
 const { OAuth2Client } = require('google-auth-library');
 const logger = require('../../shared/utils/logger');
@@ -80,12 +79,6 @@ const getGoogleAuthUrl = () => {
   });
 };
 
-const generateJWT = (user) => {
-  return jwt.sign({ sub: user.id, email: user.email, role: user.role }, process.env.JWT_SECRET, {
-    expiresIn: process.env.JWT_EXPIRES_IN || '8h',
-  });
-};
-
 const handleGoogleCallback = async (code, state) => {
   if (!state || !pendingStates.has(state)) {
     throw new Error('State inválido o expirado');
@@ -111,7 +104,9 @@ const handleGoogleCallback = async (code, state) => {
   }
   const encryptedRefreshToken = tokens.refresh_token ? encrypt(tokens.refresh_token) : null;
   const user = await loginGoogleUser(googleData, encryptedRefreshToken);
-  return generateJWT(user);
+  // Devolvemos el `user`: la firma del access token y la creación de la sesión
+  // (refresh + cookies) las hace el controller con auth.tokens / auth.cookies.
+  return user;
 };
 
 const asignarRol = (adminKey) => {
@@ -163,5 +158,4 @@ module.exports = {
   bootstrapAdmin,
   getGoogleAuthUrl,
   handleGoogleCallback,
-  generateJWT,
 };
