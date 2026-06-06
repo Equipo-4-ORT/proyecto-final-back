@@ -58,8 +58,12 @@ ${JSON.stringify(activities, null, 2)}
 
 Please generate the daily report summary.`;
 
-    // Retornamos ambos prompts combinados
-    return `${systemPrompt}\n\n${userPrompt}`;
+    // Retornamos el objeto con las partes separadas y la versión combinada
+    return {
+        systemPrompt,
+        userPrompt,
+        fullPrompt: `${systemPrompt}\n\n${userPrompt}`
+    };
 };
 module.exports = {
     generateSummaryPrompt

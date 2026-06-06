@@ -6,16 +6,6 @@
 const z = require('zod');
 
 /**
- * Schema para validar el contexto de usuario que se le pasa al adapter.
- * `date` puede llegar como Date o como string (ISO o YYYY-MM-DD).
- */
-const UserContextSchema = z.object({
-    name: z.string().min(1, 'name no puede estar vacío'),
-    role: z.string().min(1, 'role no puede estar vacío'),
-    date: z.union([z.string().min(1, 'date no puede estar vacío'), z.date()]),
-});
-
-/**
  * Schema para validar un ActivityRow (fila del Excel).
  * Cada fila es un bloque horario contiguo.
  */
@@ -43,13 +33,13 @@ const AIModuleOutputSchema = z.object({
 });
 
 /**
- * Formatea los issues de un ZodError en un mensaje legible.
- * Usa `.issues` (propiedad canónica en Zod 4; en Zod 3 también existe).
- * @param {import('zod').ZodError} error
- * @returns {string}
+ * Schema para validar el UserContext de entrada (Agregado por develop)
  */
-const formatIssues = (error) =>
-    error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('; ');
+const UserContextSchema = z.object({
+    name: z.string().min(1, 'name no puede estar vacío'),
+    role: z.string().min(1, 'role no puede estar vacío'),
+    date: z.union([z.string(), z.date()], 'date debe ser string o Date'),
+});
 
 /**
  * Valida que un objeto cumple el schema AIModuleOutput.
@@ -61,6 +51,7 @@ const validateAIModuleOutput = (data) => {
     try {
         return AIModuleOutputSchema.parse(data);
     } catch (error) {
+        // Tu código de fallback seguro
         if (error && (error.issues || error.errors)) {
             const issueArray = error.issues || error.errors;
             const messages = issueArray.map((e) => {
@@ -69,14 +60,25 @@ const validateAIModuleOutput = (data) => {
             });
             throw new Error(`AIModuleOutput validation failed: ${messages.join('; ')}`, { cause: error });
         }
-        
-        // Fallback genérico por si no es un error de Zod
         throw new Error(`AIModuleOutput validation failed: ${error?.message || 'Unknown error'}`, { cause: error });
     }
 };
 
+/**
+ * Valida que un objeto cumple el schema UserContext.
+ * @param {*} data - Datos a validar
+ * @returns {Object} Objeto validado
+ * @throws {Error} Si la validación falla
+ */
+const validateUserContext = (data) => {
+    try {
+        return UserContextSchema.parse(data);
+    } catch (error) {
+        throw new Error('UserContext validation failed', { cause: error });
+    }
+};
+
 module.exports = {
-    UserContextSchema,
     ActivityRowSchema,
     AIModuleOutputSchema,
     validateAIModuleOutput,

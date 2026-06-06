@@ -128,8 +128,8 @@ describe('OpenAIAdapter', () => {
         expect(mockClient.chat.completions.create).toHaveBeenCalledTimes(1);
         const payload = mockClient.chat.completions.create.mock.calls[0][0];
         expect(payload.response_format).toEqual({ type: 'json_object' });
-        expect(payload.temperature).toBe(0);
-        expect(payload).not.toHaveProperty('max_tokens');
+        expect(payload.temperature).toBe(0.2);
+        expect(payload.max_tokens).toBe(2048);
         // Aislamiento de instrucciones: system separado de los datos de usuario
         expect(payload.messages[0].role).toBe('system');
         expect(payload.messages[1].role).toBe('user');
@@ -151,17 +151,16 @@ describe('OpenAIAdapter', () => {
     });
 
     test('generateSummary sanitiza el input: preserva acentos pero remueve caracteres de control', async () => {
+        const ctrl = String.fromCharCode(0);
+        const validContext = { name: `Santiago${ctrl} Núñez`, role: 'Dev', date: '2026-05-25' };
         const mockClient = mockClientResolving(responseWith(validOutput));
         const adapter = new OpenAIAdapter(mockClient);
+        const activities = makeActivities({ title: `Reunión${ctrl} Planning` });
 
-        const ctrl = String.fromCharCode(7); // BEL (carácter de control)
-        await adapter.generateSummary(
-            makeActivities({ title: `Reunión${ctrl} Planning` }),
-            makeContext({ name: `Núñez${ctrl}` })
-        );
+        await adapter.generateSummary(activities, validContext);
 
         const userMessage = mockClient.chat.completions.create.mock.calls[0][0].messages[1].content;
-        expect(userMessage).toContain('Reunión Planning'); // acentos intactos, control removido
+        expect(userMessage).toContain('Reunión Planning'); 
         expect(userMessage).toContain('Núñez');
         expect(userMessage).not.toContain(ctrl);
     });

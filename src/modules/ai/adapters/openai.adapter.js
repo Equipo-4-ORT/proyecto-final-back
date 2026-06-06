@@ -57,9 +57,14 @@ class OpenAIAdapter extends AIAdapter {
                 description: sanitizeForPrompt(activity.metadata?.description || ''),
             },
         }));
+        const sanitizedContext = {
+            ...validatedContext,
+            name: sanitizeForPrompt(validatedContext.name),
+            role: sanitizeForPrompt(validatedContext.role),
+        };
 
         // Tu prompt extraído usando el contexto validado
-        const { systemPrompt, userPrompt } = generateSummaryPrompt(sanitizedActivities, validatedContext);
+        const { systemPrompt, userPrompt } = generateSummaryPrompt(sanitizedActivities, sanitizedContext);
 
         try {
             const response = await this.client.chat.completions.create({
