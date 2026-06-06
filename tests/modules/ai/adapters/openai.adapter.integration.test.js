@@ -4,10 +4,11 @@ describe('OpenAIAdapter - Integration Test with Real OpenAI API', () => {
     let adapter;
 
     beforeAll(() => {
-        if (!process.env.OPENAI_API_KEY) {
+        if (process.env.OPENAI_API_KEY) {
+            adapter = new OpenAIAdapter();
+        } else {
             console.warn('⚠️  OPENAI_API_KEY not set. Skipping integration tests.');
         }
-        adapter = new OpenAIAdapter();
     });
 
     test('generateSummary debe funcionar con OpenAI API real', async () => {

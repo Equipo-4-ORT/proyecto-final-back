@@ -1,6 +1,10 @@
 const { getAdapter, adapters } = require('../../../../src/modules/ai/adapters/index');
 const GeminiAdapter = require('../../../../src/modules/ai/adapters/gemini.adapter');
 
+// Inyectamos llaves dummy para que GitHub Actions no explote al instanciar los adaptadores
+process.env.GEMINI_API_KEY = 'dummy-test-key';
+process.env.OPENAI_API_KEY = 'dummy-test-key';
+
 describe('AI adapters registry', () => {
     const originalEnv = process.env.AI_PROVIDER;
 
