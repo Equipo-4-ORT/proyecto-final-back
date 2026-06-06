@@ -34,16 +34,16 @@ describe('auth.cookies', () => {
   });
 
   describe('setRefreshCookie()', () => {
-    test('setea refresh_token httpOnly con path acotado a /auth/refresh', () => {
+    test('setea refresh_token httpOnly con path acotado a /auth (refresh + logout)', () => {
       setRefreshCookie(res, 'opaque-refresh');
 
-      expect(REFRESH_PATH).toBe('/auth/refresh');
+      expect(REFRESH_PATH).toBe('/auth');
       expect(res.cookie).toHaveBeenCalledWith(
         'refresh_token',
         'opaque-refresh',
         expect.objectContaining({
           httpOnly: true,
-          path: '/auth/refresh',
+          path: '/auth',
           maxAge: 7 * 24 * 60 * 60 * 1000,
         }),
       );
@@ -63,6 +63,20 @@ describe('auth.cookies', () => {
         expect.objectContaining({ secure: true, sameSite: 'none' }),
       );
     });
+
+    test('sameSite=none fuerza secure=true aunque COOKIE_SECURE no esté seteado', () => {
+      process.env.COOKIE_SAMESITE = 'none';
+      // COOKIE_SECURE queda sin setear a propósito (lo borra el beforeEach)
+
+      setAccessCookie(res, 't');
+
+      // Sin Secure el browser descartaría la cookie SameSite=None → forzamos secure.
+      expect(res.cookie).toHaveBeenCalledWith(
+        'access_token',
+        't',
+        expect.objectContaining({ secure: true, sameSite: 'none' }),
+      );
+    });
   });
 
   describe('clearAuthCookies()', () => {
@@ -75,7 +89,7 @@ describe('auth.cookies', () => {
       );
       expect(res.clearCookie).toHaveBeenCalledWith(
         'refresh_token',
-        expect.objectContaining({ path: '/auth/refresh' }),
+        expect.objectContaining({ path: '/auth' }),
       );
     });
   });
