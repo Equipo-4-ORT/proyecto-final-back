@@ -42,7 +42,12 @@ model User {
   workStartTime   String   @default("09:00") @map("work_start_time")
   workEndTime     String   @default("18:00") @map("work_end_time")
   avoidOverlaps   Boolean  @default(false) @map("avoid_overlaps")
-  refreshToken  String?  @map("refresh_token") // Lo guardaremos encriptado luego
+  // ⚠️ Refresh token de GOOGLE OAuth (cifrado AES-256-GCM). Lo usan los módulos
+  //    calendar/drive para llamar a las APIs de Google en background. NO confundir
+  //    con el refresh token de SESIÓN de la app, que vive hasheado en
+  //    Session.refreshTokenHash (modelo de abajo). Comparten el nombre "refresh"
+  //    pero son cosas distintas — por eso se aclara acá en vez de renombrar.
+  refreshToken  String?  @map("refresh_token")
   status        UserStatus @default(ACTIVE)
   // —— Jira (integración F2B) ——
   jiraRefreshToken      String?   @map("jira_refresh_token")        // cifrado AES-256-GCM
@@ -62,8 +67,28 @@ model User {
   activities      DailyActivity[]
   reports         Report[]
   jiraOAuthStates JiraOAuthState[]
+  sessions        Session[]
 
   @@map("users") // Buenas prácticas: la tabla en SQL se llamará "users" en minúscula
+}
+
+// Sesión de la app: 1 fila por login activo. Guarda SOLO el hash del refresh token
+// (el valor plano vive en la cookie HttpOnly del browser). La rotación y la
+// reuse-detection se manejan en auth.controller (refresh/logout).
+model Session {
+  id               String    @id @default(uuid())
+  userId           String    @map("user_id")
+  refreshTokenHash String    @unique @map("refresh_token_hash") // SHA-256 del token plano
+  userAgent        String?   @map("user_agent")
+  ip               String?
+  expiresAt        DateTime  @map("expires_at")
+  revokedAt        DateTime? @map("revoked_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
 }
 
 // Estado del flujo OAuth 3LO de Jira (vive minutos; se borra al consumir el callback)

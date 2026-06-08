@@ -1,15 +1,18 @@
 const jwt = require('jsonwebtoken');
 const logger = require('../utils/logger');
 
+// Alias temporal: aceptamos JWT_SECRET hasta sacarlo en el próximo release.
+const getAccessSecret = () => process.env.JWT_ACCESS_SECRET || process.env.JWT_SECRET;
+
 const authMiddleware = (req, res, next) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+  // El access token viaja en una cookie HttpOnly (antes: header Authorization).
+  const token = req.cookies?.access_token;
+  if (!token) {
     return res.status(401).json({ error: 'No autorizado', message: 'Token requerido' });
   }
 
-  const token = authHeader.split(' ')[1];
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = jwt.verify(token, getAccessSecret());
     req.user = {
       id: decoded.sub,
       email: decoded.email,
