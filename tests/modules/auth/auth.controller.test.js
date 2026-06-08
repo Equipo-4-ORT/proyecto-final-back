@@ -140,11 +140,11 @@ describe('Auth Controller (cookies HttpOnly)', () => {
             expect(res.redirect).toHaveBeenCalledWith('http://localhost:5173/login?error=insufficient_scopes');
         });
 
-        test('UserNotActiveError → /login?error=user_not_active', async () => {
+        test('UserNotActiveError → /login?error=unauthorized_user', async () => {
             req.query = { code: 'c', state: 's' };
             authService.handleGoogleCallback.mockRejectedValue(new authService.UserNotActiveError('a@b.com'));
             await googleCallback(req, res);
-            expect(res.redirect).toHaveBeenCalledWith('http://localhost:5173/login?error=user_not_active');
+            expect(res.redirect).toHaveBeenCalledWith('http://localhost:5173/login?error=unauthorized_user');
         });
 
         test('UnauthorizedUserError → /login?error=unauthorized_user (FRONTEND_BASE_URL, no FRONTEND_URL)', async () => {

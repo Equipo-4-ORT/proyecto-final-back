@@ -54,11 +54,8 @@ const googleCallback = async (req, res) => {
       logger.warn('Usuario intentó loguearse sin otorgar todos los permisos');
       return res.redirect(`${process.env.FRONTEND_BASE_URL}/login?error=insufficient_scopes`);
     }
-    if (error instanceof UserNotActiveError) {
-      logger.warn('Intento de login denegado: el usuario no está activo');
-      return res.redirect(`${process.env.FRONTEND_BASE_URL}/login?error=user_not_active`);
-    }
-    if (error instanceof UnauthorizedUserError) {
+    if (error instanceof UserNotActiveError || error instanceof UnauthorizedUserError) {
+      logger.warn('Tu cuenta no está habilitada');
       return res.redirect(`${process.env.FRONTEND_BASE_URL}/login?error=unauthorized_user`);
     }
     logger.error('Error en Google OAuth callback', { error: error.message });
