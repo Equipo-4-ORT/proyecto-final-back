@@ -69,6 +69,11 @@ const WORK_BUFFER_MS = 5 * 60 * 1000;        // 5 min
 // Evita que un archivo con acciones muy separadas infle el timeline.
 const MAX_WORK_DURATION_MS = 2 * 60 * 60 * 1000; // 2 h
 
+// Tope máximo de la ventana de sync. Defiende contra ventanas absurdamente
+// amplias (un error de cálculo del batch o una prueba a mano) que dispararían
+// muchas páginas contra la Drive API. El caso real es una jornada laboral (~1 día).
+const MAX_WINDOW_MS = 31 * 24 * 60 * 60 * 1000; // 31 días
+
 /**
  * Ejecuta `fn` sobre cada item con un pool de a lo sumo `limit` ejecuciones en
  * simultáneo. A diferencia de procesar en bloques fijos, apenas un "carril"
@@ -193,8 +198,11 @@ const buildWorkEstimates = (byFile, userId, windowDate) => {
     const records = [];
 
     for (const [fileId, data] of byFile) {
-        const firstMs = Math.min(...data.timestampsMs);
-        const lastMs  = Math.max(...data.timestampsMs);
+        // reduce en lugar de Math.min(...arr): el spread de un array muy grande
+        // puede desbordar la pila (RangeError). Acá está acotado por MAX_PAGES,
+        // pero ser defensivo es gratis.
+        const firstMs = data.timestampsMs.reduce((a, b) => Math.min(a, b));
+        const lastMs  = data.timestampsMs.reduce((a, b) => Math.max(a, b));
 
         const startTime = new Date(firstMs);
         // Suma el buffer a la última acción, pero nunca supera el tope de 2 h
@@ -256,6 +264,9 @@ const persistDriveActivities = async (userId, refreshToken, startTime, endTime) 
     if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start >= end) {
         throw new InvalidWindowError();
     }
+    if (end.getTime() - start.getTime() > MAX_WINDOW_MS) {
+        throw new InvalidWindowError('Ventana demasiado amplia: el máximo permitido es 31 días');
+    }
     const timeMin = start.toISOString();
     const timeMax = end.toISOString();
 
@@ -299,10 +310,18 @@ const persistDriveActivities = async (userId, refreshToken, startTime, endTime) 
 
     const activitiesToSave = buildWorkEstimates(byFile, userId, windowDate);
 
-    const result = await prisma.dailyActivity.createMany({
-        data: activitiesToSave,
-        skipDuplicates: true,
-    });
+    // Re-sync idempotente sin congelar la duración: en lugar de saltar duplicados
+    // (que dejaba intacta la estimación del primer sync), se borran los registros
+    // del día de los archivos de esta ventana y se reinsertan recalculados. Así un
+    // segundo sync incorpora toda la actividad nueva del día sin duplicar las
+    // anteriores. El delete + el insert van en una sola transacción (atómico).
+    const externalIds = activitiesToSave.map((record) => record.externalId);
+    const [, result] = await prisma.$transaction([
+        prisma.dailyActivity.deleteMany({
+            where: { userId, source: 'drive', externalId: { in: externalIds } },
+        }),
+        prisma.dailyActivity.createMany({ data: activitiesToSave }),
+    ]);
 
     return { count: result.count, message: `${result.count} actividades de Drive guardadas` };
 };

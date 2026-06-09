@@ -33,7 +33,7 @@ const syncDriveActivities = async (req, res) => {
             return res.status(400).json({ error: error.name, message: error.message });
         }
         logger.error('Error sincronizando actividades de Drive', { message: error.message, code: error.code, cause: error.cause?.message });
-        res.status(500).json({ error: 'Error sincronizando actividades de Drive', detail: error.message, cause: error.cause?.message });
+        res.status(500).json({ error: 'Error sincronizando actividades de Drive' });
     }
 };
 

@@ -28,7 +28,12 @@ jest.mock('../../../src/modules/google/google.service');
 jest.mock('../../../src/shared/database/prisma', () => ({
     dailyActivity: {
         createMany: jest.fn().mockResolvedValue({ count: 0 }),
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
     },
+    // El service persiste con delete-then-create dentro de una transacción.
+    // El mock ejecuta las operaciones tal cual: preserva orden y argumentos,
+    // y devuelve [resultadoDelete, resultadoCreate] como el array form de Prisma.
+    $transaction: jest.fn((ops) => Promise.all(ops)),
 }));
 jest.mock('../../../src/shared/utils/logger', () => ({
     error: jest.fn(),
@@ -312,6 +317,14 @@ describe('Drive Activity Service', () => {
             expect(mockActivityQuery).not.toHaveBeenCalled();
         });
 
+        test('Lanza InvalidWindowError si la ventana supera el tope de 31 días (sin llamar a la API)', async () => {
+            // 40 días: por encima del máximo permitido.
+            await expect(
+                persistDriveActivities(mockUserId, 'token', '2026-05-01T00:00:00Z', '2026-06-10T00:00:00Z')
+            ).rejects.toBeInstanceOf(InvalidWindowError);
+            expect(mockActivityQuery).not.toHaveBeenCalled();
+        });
+
         test('Filtra acciones no relevantes (rename, move, delete, comment)', async () => {
             const irrelevantActivities = ['rename', 'move', 'delete', 'comment'].map(type => ({
                 primaryActionDetail: { [type]: {} },
@@ -507,7 +520,7 @@ describe('Drive Activity Service', () => {
             expect(data[0].externalId).toBe('file_doc1_2026-05-26');
         });
 
-        test('Llama createMany con skipDuplicates: true', async () => {
+        test('reinserta sin duplicar: borra los registros previos del día y los recrea en una transacción', async () => {
             mockActivityQuery.mockResolvedValue({
                 data: { activities: [{
                     primaryActionDetail: { edit: {} },
@@ -519,9 +532,16 @@ describe('Drive Activity Service', () => {
 
             await persistDriveActivities(mockUserId, 'token', startTime, endTime);
 
-            expect(prisma.dailyActivity.createMany).toHaveBeenCalledWith(
-                expect.objectContaining({ skipDuplicates: true })
-            );
+            // Primero borra los registros del día para esos archivos (dedup real)…
+            expect(prisma.dailyActivity.deleteMany).toHaveBeenCalledWith({
+                where: { userId: mockUserId, source: 'drive', externalId: { in: ['file_doc1_2026-05-26'] } },
+            });
+            // …y luego reinserta SIN skipDuplicates (la dedup la da el delete previo).
+            const createArg = prisma.dailyActivity.createMany.mock.calls[0][0];
+            expect(createArg).not.toHaveProperty('skipDuplicates');
+            expect(createArg.data).toHaveLength(1);
+            // Delete + insert ocurren dentro de una única transacción.
+            expect(prisma.$transaction).toHaveBeenCalledTimes(1);
         });
 
         test('sanea + trunca el title del archivo (control chars y longitud) antes de persistir', async () => {
