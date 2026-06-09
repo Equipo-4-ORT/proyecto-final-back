@@ -1,0 +1,14 @@
+.env.example
+  h_8af40fd7a5881e 57,62,64
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "7fa52bf796fc0750943634d153a0737ddb5f3d2a",
+  "prompts": {},
+  "humans": {
+    "h_8af40fd7a5881e": {
+      "author": "LicFuraca <martinexequield@gmail.com>"
+    }
+  }
+}
