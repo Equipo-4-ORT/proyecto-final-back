@@ -110,9 +110,9 @@ describe('Auth Controller (cookies HttpOnly)', () => {
             expect(res.redirect).toHaveBeenCalledWith('http://localhost:5173/login?error=missing_code');
         });
 
-        test('éxito → crea sesión, setea cookies y redirige a /callback SIN ?token=', async () => {
+        test('éxito (EMPLOYEE) → crea sesión, setea cookies y redirige a /callback?redirect=/dashboard', async () => {
             req.query = { code: 'c', state: 's' };
-            authService.handleGoogleCallback.mockResolvedValue({ id: 'u1', email: 'a@b.com', role: 'EMPLOYEE' });
+            authService.handleGoogleCallback.mockResolvedValue({ id: 'u1', email: 'emp@b.com', role: 'EMPLOYEE' });
 
             await googleCallback(req, res);
 
@@ -127,9 +127,28 @@ describe('Auth Controller (cookies HttpOnly)', () => {
             });
             expect(cookies.setAccessCookie).toHaveBeenCalledWith(res, 'access-jwt');
             expect(cookies.setRefreshCookie).toHaveBeenCalledWith(res, 'refresh-plano');
-            expect(res.redirect).toHaveBeenCalledWith('http://localhost:5173/callback');
+            // El backend indica al front el destino según el rol
+            expect(res.redirect).toHaveBeenCalledWith('http://localhost:5173/callback?redirect=/dashboard');
             // No debe haber ?token= en ninguna redirección
             expect(res.redirect.mock.calls.every(([url]) => !url.includes('token='))).toBe(true);
+        });
+
+        test('éxito (ADMIN) → redirige a /callback?redirect=/admin', async () => {
+            req.query = { code: 'c', state: 's' };
+            authService.handleGoogleCallback.mockResolvedValue({ id: 'u2', email: 'admin@b.com', role: 'ADMIN' });
+
+            await googleCallback(req, res);
+
+            expect(res.redirect).toHaveBeenCalledWith('http://localhost:5173/callback?redirect=/admin');
+        });
+
+        test('rol desconocido → cae al destino por defecto /dashboard', async () => {
+            req.query = { code: 'c', state: 's' };
+            authService.handleGoogleCallback.mockResolvedValue({ id: 'u3', email: 'x@b.com', role: 'UNKNOWN' });
+
+            await googleCallback(req, res);
+
+            expect(res.redirect).toHaveBeenCalledWith('http://localhost:5173/callback?redirect=/dashboard');
         });
 
         test('InsufficientScopesError → /login?error=insufficient_scopes', async () => {
