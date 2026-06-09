@@ -13,6 +13,14 @@ const cookiesHelper = require('./auth.cookies');
 const prisma = require('../../shared/database/prisma');
 const logger = require('../../shared/utils/logger');
 
+// Destino en el front según el rol del usuario. El backend es quien decide
+// a dónde va cada rol; el front solo lee el parámetro y lo valida.
+const ROLE_DESTINATIONS = {
+  ADMIN:    '/admin',
+  EMPLOYEE: '/dashboard',
+};
+const DEFAULT_DESTINATION = '/dashboard';
+
 const redirectToGoogle = (req, res) => {
   const url = getGoogleAuthUrl();
   res.redirect(url);
@@ -47,8 +55,10 @@ const googleCallback = async (req, res) => {
     cookiesHelper.setAccessCookie(res, tokensHelper.signAccessToken(user));
     cookiesHelper.setRefreshCookie(res, refreshPlain);
 
-    // ¡SIN ?token= en la URL! El JWT ya no queda en historial/logs/Referer.
-    return res.redirect(`${process.env.FRONTEND_BASE_URL}/callback`);
+    // El backend indica al front a dónde redirigir según el rol.
+    // Sin ?token= en la URL: el JWT viaja solo en la cookie HttpOnly.
+    const destination = ROLE_DESTINATIONS[user.role] ?? DEFAULT_DESTINATION;
+    return res.redirect(`${process.env.FRONTEND_BASE_URL}/callback?redirect=${destination}`);
   } catch (error) {
     if (error instanceof InsufficientScopesError) {
       logger.warn('Usuario intentó loguearse sin otorgar todos los permisos');

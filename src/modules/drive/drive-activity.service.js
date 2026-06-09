@@ -45,9 +45,29 @@ const MIME_TO_APP = {
     'application/vnd.google-apps.jam':          'Google Jamboard',
 };
 
+// Mapeo de mimeType al activityType que se persiste en DailyActivity.
+// Permite al timeline mostrar el ícono/label correcto sin leer metadata.
+// Los tipos que no están en la lista caen al valor genérico 'file'.
+const MIME_TO_ACTIVITY_TYPE = {
+    'application/vnd.google-apps.document':     'document',
+    'application/vnd.google-apps.spreadsheet':  'spreadsheet',
+    'application/vnd.google-apps.presentation': 'presentation',
+    'application/vnd.google-apps.form':         'form',
+    'application/vnd.google-apps.drawing':      'drawing',
+    'application/vnd.google-apps.script':       'script',
+};
+
 // Tope de llamadas simultáneas a la Drive API al enriquecer el resumen. Evita
 // gatillar rate limits (userRateLimitExceeded) en días con muchos archivos.
 const ENRICH_CONCURRENCY = 10;
+
+// Estimación de duración de trabajo por archivo:
+// se suma a la última acción para dar un buffer de "cierre de pestaña".
+const WORK_BUFFER_MS = 5 * 60 * 1000;        // 5 min
+
+// Tope de duración estimada por archivo en una misma ventana de sync.
+// Evita que un archivo con acciones muy separadas infle el timeline.
+const MAX_WORK_DURATION_MS = 2 * 60 * 60 * 1000; // 2 h
 
 /**
  * Ejecuta `fn` sobre cada item con un pool de a lo sumo `limit` ejecuciones en
@@ -153,8 +173,70 @@ const getDriveActivitiesForDay = async (refreshToken, timeMin, timeMax) => {
 };
 
 /**
+ * Estima la duración de trabajo por archivo a partir de sus acciones crudas.
+ *
+ * Agrupa todos los timestamps de acciones relevantes del archivo y calcula:
+ *   startTime = primera acción
+ *   endTime   = min(última acción + WORK_BUFFER_MS, primera acción + MAX_WORK_DURATION_MS)
+ *
+ * Esto hace que cada archivo aparezca con una barra de duración real en el
+ * timeline, en lugar de un punto sin extensión (que era el resultado cuando
+ * la API devolvía un timestamp puntual para cada acción).
+ *
+ * @param {Map<string, {fileId: string, title: string|null, mimeType: string|null, timestampsMs: number[]}>} byFile
+ *   Mapa de fileId → datos acumulados del archivo.
+ * @param {string} userId
+ * @param {string} windowDate - Fecha de la ventana de sync en formato YYYY-MM-DD (para el externalId).
+ * @returns {Array<object>} Registros listos para createMany en DailyActivity.
+ */
+const buildWorkEstimates = (byFile, userId, windowDate) => {
+    const records = [];
+
+    for (const [fileId, data] of byFile) {
+        const firstMs = Math.min(...data.timestampsMs);
+        const lastMs  = Math.max(...data.timestampsMs);
+
+        const startTime = new Date(firstMs);
+        // Suma el buffer a la última acción, pero nunca supera el tope de 2 h
+        // contado desde la primera. Así un archivo con acciones muy separadas
+        // no infla el timeline más allá de lo razonable.
+        const endTime   = new Date(Math.min(lastMs + WORK_BUFFER_MS, firstMs + MAX_WORK_DURATION_MS));
+
+        // externalId estable: un registro por archivo por día de sync.
+        // skipDuplicates lo hace idempotente si el sync se repite el mismo día.
+        const externalId = `file_${fileId}_${windowDate}`;
+
+        // activityType refleja la app del archivo (document, spreadsheet, presentation…)
+        // para que el timeline muestre el tipo correcto sin necesitar leer metadata.
+        // Los archivos sin mimeType nativo de Workspace (PDFs, imágenes, etc.) quedan como 'file'.
+        const activityType = MIME_TO_ACTIVITY_TYPE[data.mimeType] ?? 'file';
+
+        records.push({
+            userId,
+            source: 'drive',
+            activityType,
+            externalId,
+            startTime,
+            endTime,
+            // title en columna de primer nivel (para listados y búsquedas) y en metadata
+            // (para compatibilidad con enrichDriveActivitySummary que lo lee de ahí).
+            // Viene saneado + truncado desde extractDriveTarget.
+            title: data.title,
+            metadata: { title: data.title, fileId, mimeType: data.mimeType },
+        });
+    }
+
+    return records;
+};
+
+/**
  * Persiste las actividades de Drive del día indicado en la BD.
- * Filtra por tipo de acción relevante y excluye carpetas y accesos directos.
+ *
+ * En lugar de guardar un registro por acción, agrupa por archivo y estima
+ * la duración de trabajo: desde la primera acción hasta la última + 5 min
+ * de buffer, con un tope de 2 h. Así las actividades de Drive aparecen con
+ * duración real en el timeline (en lugar de un punto de duración cero).
+ *
  * Usa skipDuplicates para ser idempotente si se llama varias veces el mismo día.
  *
  * @param {string} userId         - ID del usuario en el sistema
@@ -177,48 +259,45 @@ const persistDriveActivities = async (userId, refreshToken, startTime, endTime) 
     const timeMin = start.toISOString();
     const timeMax = end.toISOString();
 
+    // Fecha local de la ventana (YYYY-MM-DD) usada en el externalId.
+    // Se toma del inicio de la ventana en UTC: un sync por jornada laboral
+    // siempre cae en el mismo día calendario.
+    const windowDate = start.toISOString().slice(0, 10);
+
     const rawActivities = await getDriveActivitiesForDay(refreshToken, timeMin, timeMax);
 
-    const activitiesToSave = [];
+    // Acumular timestamps por archivo — un archivo puede tener múltiples
+    // acciones de edit/create en la ventana; queremos la primera y la última.
+    const byFile = new Map();
 
     for (const activity of rawActivities) {
         const extracted = extractDriveTarget(activity);
         if (!extracted || !RELEVANT_ACTIONS.has(extracted.actionType)) continue;
 
-        const { actionType, fileId, mimeType, title } = extracted;
+        const { fileId, mimeType, title } = extracted;
+        if (!fileId) continue;
 
-        // La API devuelve timestamp (evento puntual) o timeRange (sesión de trabajo)
-        const startTime = activity.timeRange
-            ? new Date(activity.timeRange.startTime)
-            : new Date(activity.timestamp);
-        const endTime = activity.timeRange
-            ? new Date(activity.timeRange.endTime)
-            : new Date(activity.timestamp);
+        // La API devuelve timestamp (evento puntual) o timeRange (sesión de trabajo).
+        // Para la estimación usamos el instante de inicio de la acción en ambos casos.
+        const tsMs = activity.timeRange
+            ? new Date(activity.timeRange.startTime).getTime()
+            : new Date(activity.timestamp).getTime();
 
-        // externalId sintético para deduplicación (la API no expone un ID estable por actividad)
-        const rawTimestamp = activity.timeRange
-            ? activity.timeRange.startTime
-            : activity.timestamp;
-        const externalId = fileId && rawTimestamp
-            ? `${actionType}_${fileId}_${rawTimestamp}`
-            : null;
-
-        activitiesToSave.push({
-            userId,
-            source: 'drive',
-            activityType: actionType,
-            externalId,
-            startTime,
-            endTime,
-            // title ya viene saneado + truncado desde extractDriveTarget (fuente externa: Drive,
-            // incl. archivos compartidos por terceros) antes de persistirlo en la JSON column.
-            metadata: { title, fileId, mimeType },
-        });
+        if (!byFile.has(fileId)) {
+            byFile.set(fileId, { fileId, mimeType, title, timestampsMs: [] });
+        }
+        const entry = byFile.get(fileId);
+        entry.timestampsMs.push(tsMs);
+        // Conservar el título del primer evento que lo traiga (la API a veces
+        // devuelve null en eventos de edición consolidados).
+        if (!entry.title && title) entry.title = title;
     }
 
-    if (activitiesToSave.length === 0) {
+    if (byFile.size === 0) {
         return { count: 0, message: 'No se encontraron actividades relevantes de Drive para guardar' };
     }
+
+    const activitiesToSave = buildWorkEstimates(byFile, userId, windowDate);
 
     const result = await prisma.dailyActivity.createMany({
         data: activitiesToSave,
@@ -364,7 +443,11 @@ const enrichDriveActivitySummary = async (summary, refreshToken) => {
 module.exports = {
     getDriveActivitiesForDay,
     persistDriveActivities,
+    buildWorkEstimates,
     summarizeDriveActivities,
     enrichDriveActivitySummary,
     InvalidWindowError,
+    WORK_BUFFER_MS,
+    MAX_WORK_DURATION_MS,
+    MIME_TO_ACTIVITY_TYPE,
 };
