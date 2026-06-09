@@ -151,17 +151,16 @@ describe('OpenAIAdapter', () => {
     });
 
     test('generateSummary sanitiza el input: preserva acentos pero remueve caracteres de control', async () => {
+        const ctrl = String.fromCharCode(0);
+        const validContext = { name: `Santiago${ctrl} Núñez`, role: 'Dev', date: '2026-05-25' };
         const mockClient = mockClientResolving(responseWith(validOutput));
         const adapter = new OpenAIAdapter(mockClient);
+        const activities = makeActivities({ title: `Reunión${ctrl} Planning` });
 
-        const ctrl = String.fromCharCode(7); // BEL (carácter de control)
-        await adapter.generateSummary(
-            makeActivities({ title: `Reunión${ctrl} Planning` }),
-            makeContext({ name: `Núñez${ctrl}` })
-        );
+        await adapter.generateSummary(activities, validContext);
 
         const userMessage = mockClient.chat.completions.create.mock.calls[0][0].messages[1].content;
-        expect(userMessage).toContain('Reunión Planning'); // acentos intactos, control removido
+        expect(userMessage).toContain('Reunión Planning'); 
         expect(userMessage).toContain('Núñez');
         expect(userMessage).not.toContain(ctrl);
     });
