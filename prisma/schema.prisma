@@ -135,6 +135,7 @@ model Report {
   userId       String   @map("user_id")
   reportDate   DateTime @db.Date @map("report_date")
   totalHours   Float?       @map("total_hours")
+  content      Json?
   xlsxUrl      String?  @db.VarChar(255) @map("xlsx_url")
   sentAt       DateTime? @map("sent_at")
   status       ReportStatus @default(PENDING)
