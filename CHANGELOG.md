@@ -14,11 +14,21 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `DailyActivity.externalId` field plus `@@unique([userId, source, externalId])` and `@@index([userId, source, startTime])` for idempotent Jira worklog ingestion
 - Centralized config module (`src/shared/config/index.js`) exposing `frontendBaseUrl`, `port`, and `nodeEnv`
 - Environment variables for Jira integration: `JIRA_CLIENT_ID`, `JIRA_CLIENT_SECRET`, `JIRA_REDIRECT_URI`, `JIRA_SCOPES`, `JIRA_REQUEST_TIMEOUT_MS`, `JIRA_SYNC_MAX_WINDOW_HOURS`, and `FRONTEND_BASE_URL`
+- Autenticación con cookies HttpOnly: modelo `Session` (hash del refresh token, rotación + detección de reuso), helpers `auth.tokens.js` y `auth.cookies.js`, y nuevos endpoints `POST /auth/refresh`, `POST /auth/logout`, `GET /auth/me`
+- Dependencia `cookie-parser` y variables de entorno `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `JWT_ACCESS_TTL`, `COOKIE_DOMAIN`, `COOKIE_SECURE`, `COOKIE_SAMESITE`
 
 ### Changed
 
 - `/health` endpoint trimmed to `status` and `timestamp` (removed `uptime` and `environment` to avoid exposing runtime details)
 - `DailyActivity.source` comment updated to include `'jira'` as a valid value
+- **Auth migrada a cookies HttpOnly**: `authMiddleware` lee el access token de `req.cookies.access_token` (antes header `Authorization`); el callback de Google setea cookies y redirige a `/callback` **sin** `?token=` en la URL; `handleGoogleCallback` devuelve el `user` (antes el JWT)
+- CORS configurado con `origin` explícito (`FRONTEND_BASE_URL`) + `credentials: true` (antes `cors()` sin opciones)
+- `GET /auth/me` pasa por `requireActiveUser` → revalida `role`/`status` contra la DB
+- Fix: el path `UnauthorizedUserError` del callback usaba `FRONTEND_URL` (sin definir) → ahora `FRONTEND_BASE_URL`
+
+### Security
+
+- El JWT deja de viajar en la URL del callback (no más token en historial/logs/`Referer`) y deja de ser accesible por JS (cookie `HttpOnly` → mitiga robo por XSS); CSRF mitigado con `SameSite=Lax`. `User.refreshToken` (refresh de Google) se documenta sin renombrar para no romper el path de Calendar/Drive
 
 ## [0.3.0] - 2026-05-17
 
