@@ -1,11 +1,13 @@
 /**
- * Generar el prompt del sistema y del usuario para el resumen diario.
- * @param {Array<Object>} activities - actividades sanitizadas
- * @param {Object} userContext - Contexto del usuario
- * @returns {string} El prompt completo combinado
+ * Genera el system prompt y el user prompt para el resumen diario.
+ * IMPORTANTE: `activities` y `userContext` deben venir YA sanitizados por el
+ * caller — este módulo solo arma texto, no sanitiza ni valida.
+ * @param {Array<Object>} activities - Actividades sanitizadas
+ * @param {Object} userContext - Contexto del usuario sanitizado: { name, role, date }
+ * @returns {{ systemPrompt: string, userPrompt: string, fullPrompt: string }}
  */
 
-const generateSummaryPrompt = (activities,userContext) => {
+const generateSummaryPrompt = (activities, userContext) => {
     const systemPrompt = `You are an AI assistant that summarizes work activities into a structured daily report.
 
 Your task is to:
@@ -21,9 +23,9 @@ IMPORTANT RULES:
 - Return ONLY valid JSON, no additional text
 - Dates must be in YYYY-MM-DD format
 
-STRICT RULES FOR DESCRIPTIONS (TASK 3.4.3.1):
-- If an activity lacks a "description" field in the input, you MUST infer a brief, professional description based logically on the "title" and "activityType".
-- The inferred description MUST NOT exceed 100 characters.
+RULES FOR DESCRIPTIONS:
+- Every "description" (provided or inferred) MUST be concise and MUST NOT exceed 100 characters; truncate if needed.
+- If an activity lacks a "description" field in the input, infer a brief, professional one logically from its "title" and "activityType".
 
 Expected JSON structure:
 {
