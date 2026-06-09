@@ -1,12 +1,13 @@
 const OpenAIAdapter = require('./openai.adapter');
+const GeminiAdapter = require('./gemini.adapter');
 
 /**
  * Registry de adapters de IA disponibles. La empresa que despliegue
- * elige el provider vía la env var `AI_PROVIDER` (default: 'openai').
+ * elige el provider vía la env var `AI_PROVIDER` (default: 'gemini').
  *
- * Cada provider valida sus propias credenciales recién al instanciarse,
- * así que las empresas que usen otro provider (ej. Bedrock) no necesitan
- * tener seteada la API key de OpenAI.
+ * Todos los adapters quedan registrados; se instancia únicamente el elegido.
+ * Cada provider valida sus propias credenciales recién al instanciarse, así
+ * que usar uno no obliga a tener seteada la API key de los demás.
  *
  * Para agregar un nuevo adapter:
  *   1. Crear `src/modules/ai/adapters/<provider>.adapter.js` extendiendo AIAdapter.
@@ -16,9 +17,10 @@ const OpenAIAdapter = require('./openai.adapter');
 
 const adapters = {
     openai: OpenAIAdapter,
+    gemini: GeminiAdapter,
 };
 
-const getAdapter = (provider = process.env.AI_PROVIDER || 'openai') => {
+const getAdapter = (provider = process.env.AI_PROVIDER || 'gemini') => {
     const Adapter = adapters[provider];
     if (!Adapter) {
         const supported = Object.keys(adapters).join(', ');
