@@ -1,0 +1,28 @@
+src/modules/drive/drive-activity.controller.js
+  s_c1412d108375cb::t_86ac0ecb389235 36
+tests/modules/drive/drive-activity.service.test.js
+  s_c1412d108375cb::t_ffd389f1428ff5 320-327
+  s_c1412d108375cb::t_c64319a6a36412 523,535-544
+  s_c1412d108375cb::t_03803de641c313 31,33-36
+src/modules/drive/drive-activity.service.js
+  s_c1412d108375cb::t_285f1767a58405 267-269
+  s_c1412d108375cb::t_cf4aa9d97e05f6 201-205
+  s_c1412d108375cb::t_4d714d51449aaa 313-324
+  s_c1412d108375cb::t_fe7cae53354426 72-76
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "77fdca7095e6357ec638125fadaa125cb29ee0d8",
+  "prompts": {},
+  "sessions": {
+    "s_c1412d108375cb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5dcbb854-0147-480f-ba8a-4c8f742472fe",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "LicFuraca <martinexequield@gmail.com>"
+    }
+  }
+}
