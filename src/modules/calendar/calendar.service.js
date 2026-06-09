@@ -4,6 +4,19 @@ const prisma = require('../../shared/database/prisma');
 const logger = require('../../shared/utils/logger');
 const { sanitizeText, MAX_TITLE_CHARS } = require('../../shared/utils/sanitize');
 
+/**
+ * Error tipado para una ventana [startTime, endTime) inválida (fechas no
+ * parseables o startTime >= endTime). Lo usa persistCalendarActivitiesInWindow;
+ * el controller (que sincroniza por `date`) no lo necesita.
+ */
+class InvalidWindowError extends Error {
+  constructor(message = 'Ventana inválida: startTime y endTime deben ser ISO 8601 y startTime < endTime') {
+    super(message);
+    this.name = 'InvalidWindowError';
+    this.statusCode = 400;
+  }
+}
+
 const getCalendarEventsForDay = async (refreshToken, timeMin, timeMax) => {
   try {
     const auth = getAuthenticatedGoogleClient(refreshToken);
@@ -22,16 +35,13 @@ const getCalendarEventsForDay = async (refreshToken, timeMin, timeMax) => {
   }
 };
 
-const persistCalendarActivities = async (userId, refreshToken, dateStr) => {
-  const startDate = new Date(dateStr);
-  const timeMin = startDate.toISOString();
-
-  const endDate = new Date(startDate);
-  endDate.setDate(endDate.getDate() + 1);
-  const timeMax = endDate.toISOString();
-
-  const rawEvents = await getCalendarEventsForDay(refreshToken, timeMin, timeMax);
-
+/**
+ * Mapea los eventos crudos de Calendar a filas de DailyActivity aplicando los
+ * filtros de relevancia: solo eventos con hora exacta, con asistentes, que el
+ * usuario aceptó explícitamente. Fuente única del parseo para los dos sync
+ * (por `date` y por ventana).
+ */
+const mapEventsToActivities = (userId, rawEvents) => {
   const activitiesToSave = [];
 
   for (const event of rawEvents) {
@@ -75,6 +85,13 @@ const persistCalendarActivities = async (userId, refreshToken, dateStr) => {
     });
   }
 
+  return activitiesToSave;
+};
+
+/**
+ * Persiste las actividades mapeadas. Idempotente vía skipDuplicates (externalId).
+ */
+const persistActivities = async (activitiesToSave) => {
   if (activitiesToSave.length === 0) {
     return { count: 0, message: 'No se encontraron actividades relevantes para guardar' };
   }
@@ -87,7 +104,48 @@ const persistCalendarActivities = async (userId, refreshToken, dateStr) => {
   return { count: result.count, message: `${result.count} actividades de calendario guardadas` };
 };
 
+/**
+ * Sincroniza el día completo (UTC) a partir de una fecha YYYY-MM-DD.
+ * Lo usa el endpoint HTTP (controller). El batch usa persistCalendarActivitiesInWindow.
+ */
+const persistCalendarActivities = async (userId, refreshToken, dateStr) => {
+  const startDate = new Date(dateStr);
+  const timeMin = startDate.toISOString();
+
+  const endDate = new Date(startDate);
+  endDate.setDate(endDate.getDate() + 1);
+  const timeMax = endDate.toISOString();
+
+  const rawEvents = await getCalendarEventsForDay(refreshToken, timeMin, timeMax);
+  return persistActivities(mapEventsToActivities(userId, rawEvents));
+};
+
+/**
+ * Sincroniza los eventos dentro de la ventana [startTime, endTime). Pensada para el
+ * batch, que arma la ventana a partir de la jornada laboral del usuario (en
+ * SCHEDULER_TIMEZONE → UTC). La ventana llega ya resuelta a instantes absolutos.
+ *
+ * @param {string} userId
+ * @param {string} refreshToken - refresh token de Google ya descifrado
+ * @param {string|Date} startTime - ISO 8601 con TZ
+ * @param {string|Date} endTime   - ISO 8601 con TZ (exclusivo)
+ * @returns {Promise<{count:number, message:string}>}
+ * @throws {InvalidWindowError} si la ventana es inválida
+ */
+const persistCalendarActivitiesInWindow = async (userId, refreshToken, startTime, endTime) => {
+  const start = new Date(startTime);
+  const end = new Date(endTime);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start >= end) {
+    throw new InvalidWindowError();
+  }
+
+  const rawEvents = await getCalendarEventsForDay(refreshToken, start.toISOString(), end.toISOString());
+  return persistActivities(mapEventsToActivities(userId, rawEvents));
+};
+
 module.exports = {
   getCalendarEventsForDay,
   persistCalendarActivities,
+  persistCalendarActivitiesInWindow,
+  InvalidWindowError,
 };

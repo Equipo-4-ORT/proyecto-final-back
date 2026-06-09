@@ -23,7 +23,7 @@ const requireUserId = (req) => {
 };
 
 const buildFrontendRedirect = (params) => {
-    const url = new URL('/profile', config.frontendBaseUrl);
+    const url = new URL('/dashboard', config.frontendBaseUrl);
     for (const [key, value] of Object.entries(params)) {
         if (value !== undefined && value !== null) {
             url.searchParams.set(key, value);
