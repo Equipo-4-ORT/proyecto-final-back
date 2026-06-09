@@ -1,0 +1,46 @@
+src/modules/ai/adapters/index.js
+  s_ffcd6c14c0c3c2::t_9989487e8d3176 1,6,8-10,19
+src/modules/ai/ai.schemas.js
+  s_ffcd6c14c0c3c2::t_e003994aa868c4 7,37-38,43,46-61,66,72-74,79,81-82,88-90,95,100
+tests/modules/ai/adapters/gemini.adapter.test.js
+  s_ffcd6c14c0c3c2::t_251ba21d825fc0 3-4,11-12,14,18-50,56-57,72-75,82-109,111-142
+tests/modules/ai/adapters/openai.adapter.integration.test.js
+  s_ffcd6c14c0c3c2::t_b0a869bf3dacf9 3-8,12,15-16,34,36,38-41,43
+src/modules/ai/ai.errors.js
+  s_ffcd6c14c0c3c2::t_69167bdd6e9359 1-15
+src/modules/ai/adapters/gemini.adapter.js
+  s_ffcd6c14c0c3c2::t_d1d8fac2d44c48 1-19,31-55,57,59-60,63-76,81-86,88-91,101-105,107,110,117,119,122-130,142
+  h_8af40fd7a5881e 26,28-29,56,58,77-80,92,106,108,112,118,121,132,134
+tests/modules/ai/adapters/openai.adapter.test.js
+  s_ffcd6c14c0c3c2::t_4481c6a640bc00 131-132
+src/modules/ai/adapters/openai.adapter.js
+  s_ffcd6c14c0c3c2::t_0b6f438538c2dd 108
+  s_ffcd6c14c0c3c2::t_9438ad56fd331c 6
+  s_ffcd6c14c0c3c2::t_c7582571bc4fdc 73-76
+tests/modules/ai/adapters/index.test.js
+  s_ffcd6c14c0c3c2::t_c873ebf40498cc 3,20,22,30-34,36,38,49,52
+src/modules/ai/prompts/summary.prompt.js
+  s_ffcd6c14c0c3c2::t_0793d03821089c 2-7,10
+  s_ffcd6c14c0c3c2::t_ed3967f729c2e0 26-28
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "6715f21c3b4da1a25b1f49ea8682a4d4de2951f2",
+  "prompts": {},
+  "humans": {
+    "h_8af40fd7a5881e": {
+      "author": "LicFuraca <martinexequield@gmail.com>"
+    }
+  },
+  "sessions": {
+    "s_ffcd6c14c0c3c2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7c2d5f95-6a68-4132-90e2-48d0bbd9e8e0",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "LicFuraca <martinexequield@gmail.com>"
+    }
+  }
+}
