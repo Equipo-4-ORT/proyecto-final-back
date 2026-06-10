@@ -32,7 +32,7 @@ const syncDriveActivities = async (req, res) => {
         if (error instanceof InvalidWindowError) {
             return res.status(400).json({ error: error.name, message: error.message });
         }
-        logger.error('Error sincronizando actividades de Drive', { message: error.message, code: error.code });
+        logger.error('Error sincronizando actividades de Drive', { message: error.message, code: error.code, cause: error.cause?.message });
         res.status(500).json({ error: 'Error sincronizando actividades de Drive' });
     }
 };

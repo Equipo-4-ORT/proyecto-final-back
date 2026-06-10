@@ -128,8 +128,8 @@ describe('OpenAIAdapter', () => {
         expect(mockClient.chat.completions.create).toHaveBeenCalledTimes(1);
         const payload = mockClient.chat.completions.create.mock.calls[0][0];
         expect(payload.response_format).toEqual({ type: 'json_object' });
-        expect(payload.temperature).toBe(0.2);
-        expect(payload.max_tokens).toBe(2048);
+        expect(payload.temperature).toBe(0);
+        expect(payload).not.toHaveProperty('max_tokens');
         // Aislamiento de instrucciones: system separado de los datos de usuario
         expect(payload.messages[0].role).toBe('system');
         expect(payload.messages[1].role).toBe('user');

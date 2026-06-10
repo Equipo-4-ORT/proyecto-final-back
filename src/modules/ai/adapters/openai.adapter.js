@@ -3,6 +3,7 @@ const AIAdapter = require('../ai.interface');
 const { sanitizeForPrompt, sanitizeObjectForExcel } = require('../ai.sanitize');
 const { validateAIModuleOutput, validateUserContext } = require('../ai.schemas');
 const { generateSummaryPrompt } = require('../prompts/summary.prompt');
+const { AIParseError } = require('../ai.errors');
 
 /**
  * Adapter de OpenAI. Implementa la interfaz AIAdapter usando la API
@@ -69,8 +70,10 @@ class OpenAIAdapter extends AIAdapter {
         try {
             const response = await this.client.chat.completions.create({
                 model: 'gpt-4o-mini',
-                max_tokens: 2048,
-                temperature: 0.2,
+                // temperature 0 = salida determinística (clave para extracción
+                // estructurada a JSON). Sin max_tokens para no truncar el JSON:
+                // el largo se acota en el prompt (límite de chars en description).
+                temperature: 0,
                 response_format: { type: 'json_object' },
                 messages: [
                     {
@@ -102,7 +105,7 @@ class OpenAIAdapter extends AIAdapter {
             try {
                 parsedOutput = JSON.parse(jsonStr);
             } catch (parseError) {
-                throw new Error(`Invalid JSON from OpenAI: ${parseError.message}`, { cause: parseError });
+                throw new AIParseError(`Invalid JSON from OpenAI: ${parseError.message}`, { cause: parseError });
             }
 
             const validatedOutput = validateAIModuleOutput(parsedOutput);

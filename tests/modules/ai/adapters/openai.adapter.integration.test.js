@@ -1,23 +1,19 @@
 const OpenAIAdapter = require('../../../../src/modules/ai/adapters/openai.adapter');
 
-describe('OpenAIAdapter - Integration Test with Real OpenAI API', () => {
+// Test de integración contra la API REAL de OpenAI. Solo corre si hay una
+// API key seteada (entorno local). En CI la key no está → el bloque se reporta
+// como "skipped", NO como un test verde sin asserts (evita falsos positivos).
+const describeIfApiKey = process.env.OPENAI_API_KEY ? describe : describe.skip;
+
+describeIfApiKey('OpenAIAdapter - Integration Test (Real OpenAI API)', () => {
     let adapter;
 
     beforeAll(() => {
-        if (process.env.OPENAI_API_KEY) {
-            adapter = new OpenAIAdapter();
-        } else {
-            console.warn('⚠️  OPENAI_API_KEY not set. Skipping integration tests.');
-        }
+        adapter = new OpenAIAdapter();
     });
 
-    test('generateSummary debe funcionar con OpenAI API real', async () => {
-        if (!process.env.OPENAI_API_KEY) {
-            console.warn('⏭️  Skipping: No API key');
-            return;
-        }
-
-        const mockActivities = [
+    test('generateSummary funciona contra la API real de OpenAI', async () => {
+        const activities = [
             {
                 id: 'act1',
                 source: 'calendar',
@@ -35,28 +31,13 @@ describe('OpenAIAdapter - Integration Test with Real OpenAI API', () => {
                 metadata: { title: 'Implement feature X' },
             },
         ];
+        const userContext = { name: 'Santiago Nuñez', role: 'developer', date: '2026-05-25' };
 
-        const userContext = {
-            name: 'Santiago Nuñez',
-            role: 'developer',
-            date: '2026-05-25',
-        };
+        const result = await adapter.generateSummary(activities, userContext);
 
-        try {
-            const result = await adapter.generateSummary(mockActivities, userContext);
-
-            expect(result).toHaveProperty('daySummary');
-            expect(result).toHaveProperty('rows');
-            expect(result).toHaveProperty('totalHours');
-            expect(Array.isArray(result.rows)).toBe(true);
-        } catch (error) {
-            // Atrapamos el error de facturación para evitar que rompa el CI/CD
-            if (error.message.includes('429') || error.message.includes('rate limit')) {
-                console.warn('⚠️ OpenAI rate limit exceeded. Test ignorado de forma segura.');
-                return; 
-            }
-            // Si el error es de lógica o código roto, sí debe fallar
-            throw error;
-        }
+        expect(result).toHaveProperty('daySummary');
+        expect(result).toHaveProperty('rows');
+        expect(result).toHaveProperty('totalHours');
+        expect(Array.isArray(result.rows)).toBe(true);
     }, 30000);
 });
