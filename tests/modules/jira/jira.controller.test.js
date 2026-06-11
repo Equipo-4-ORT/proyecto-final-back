@@ -61,29 +61,29 @@ describe('jira.controller — getAuthUrl', () => {
 });
 
 describe('jira.controller — handleCallback', () => {
-    test('outcome connected → redirect 302 a /profile?jira=connected', async () => {
+    test('outcome connected → redirect 302 a /dashboard?jira=connected', async () => {
         service.handleCallback.mockResolvedValue({ outcome: 'connected' });
         const req = { query: { code: 'C', state: 'S' } };
         const res = makeRes();
         await controller.handleCallback(req, res, jest.fn());
         expect(service.handleCallback).toHaveBeenCalledWith({ code: 'C', state: 'S', error: undefined });
-        expect(res.redirect).toHaveBeenCalledWith(302, 'http://localhost:5173/profile?jira=connected');
+        expect(res.redirect).toHaveBeenCalledWith(302, 'http://localhost:5173/dashboard?jira=connected');
     });
 
-    test('outcome cancelled → redirect a /profile?jira=cancelled', async () => {
+    test('outcome cancelled → redirect a /dashboard?jira=cancelled', async () => {
         service.handleCallback.mockResolvedValue({ outcome: 'cancelled' });
         const req = { query: { error: 'access_denied' } };
         const res = makeRes();
         await controller.handleCallback(req, res, jest.fn());
-        expect(res.redirect).toHaveBeenCalledWith(302, 'http://localhost:5173/profile?jira=cancelled');
+        expect(res.redirect).toHaveBeenCalledWith(302, 'http://localhost:5173/dashboard?jira=cancelled');
     });
 
-    test('outcome error → redirect a /profile?jira=error&reason=invalid_state', async () => {
+    test('outcome error → redirect a /dashboard?jira=error&reason=invalid_state', async () => {
         service.handleCallback.mockResolvedValue({ outcome: 'error', reason: 'invalid_state' });
         const req = { query: { code: 'C', state: 'S' } };
         const res = makeRes();
         await controller.handleCallback(req, res, jest.fn());
-        expect(res.redirect).toHaveBeenCalledWith(302, 'http://localhost:5173/profile?jira=error&reason=invalid_state');
+        expect(res.redirect).toHaveBeenCalledWith(302, 'http://localhost:5173/dashboard?jira=error&reason=invalid_state');
     });
 
     test('descarta params demasiado largos o no-string antes de pasarlos al service', async () => {

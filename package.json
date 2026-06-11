@@ -27,6 +27,7 @@
   },
   "homepage": "https://github.com/FelipeValenzuela00/proyecto-final-back#readme",
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "@prisma/client": "^6.19.3",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
@@ -37,6 +38,8 @@
     "googleapis": "^172.0.0",
     "jsonwebtoken": "^9.0.3",
     "luxon": "^3.7.2",
+    "node-cron": "^4.2.1",
+    "nodemailer": "^8.0.10",
     "openai": "^6.39.0",
     "winston": "^3.19.0",
     "zod": "^4.4.3"
