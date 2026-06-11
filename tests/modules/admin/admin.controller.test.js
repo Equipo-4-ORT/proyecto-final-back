@@ -34,7 +34,7 @@ let req, res;
 beforeEach(() => {
     jest.clearAllMocks();
     res = { status: jest.fn().mockReturnThis(), json: jest.fn() };
-    req = { body: {}, params: {} };
+    req = { body: {}, params: {}, user: { id: 'admin-123' } }; // Simula admin logueado
 });
 
 describe('postUser', () => {
@@ -137,6 +137,18 @@ describe('patchUserStatus', () => {
 
         expect(res.status).toHaveBeenCalledWith(200);
         expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ status: 'INACTIVE' }));
+    });
+
+    test('responde 403 si el admin intenta desactivar su propia cuenta (T033)', async () => {
+        req.params.id = 'admin-123'; // Mismo ID que el usuario logueado en req.user
+
+        await patchUserStatus(req, res);
+
+        expect(res.status).toHaveBeenCalledWith(403);
+        expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+            message: 'El Admin no deberia poder desactivar su cuenta'
+        }));
+        expect(toggleUserStatus).not.toHaveBeenCalled();
     });
 
     test('responde 404 si el usuario no existe', async () => {

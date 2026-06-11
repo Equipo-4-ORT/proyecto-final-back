@@ -47,6 +47,16 @@ const getUsers = async (req, res) => {
 
 const patchUserStatus = async (req, res) => {
   try {
+    const targetUserId = req.params.id;
+    const currentUserId = req.user?.id;
+
+    if (targetUserId === currentUserId) {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'El Admin no deberia poder desactivar su cuenta'
+      });
+    }
+
     const user = await toggleUserStatus(req.params.id);
     return res.status(200).json(user);
   } catch (error) {
