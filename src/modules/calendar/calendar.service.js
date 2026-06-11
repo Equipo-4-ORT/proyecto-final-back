@@ -41,8 +41,20 @@ const getCalendarEventsForDay = async (refreshToken, timeMin, timeMax) => {
  * usuario aceptó explícitamente. Fuente única del parseo para los dos sync
  * (por `date` y por ventana).
  */
-const mapEventsToActivities = (userId, rawEvents) => {
+const mapEventsToActivities = (userId, rawEvents, user=null, dateStr=null) => {
   const activitiesToSave = [];
+
+
+  let limitStart = null;
+  let limitEnd = null;
+
+  if (user && dateStr) {
+   const startTimeStr = user.workStartTime.length === 5 ? user.workStartTime : '09:00';
+    const endTimeStr = user.workEndTime.length === 5 ? user.workEndTime : '18:00';
+
+    limitStart = new Date(`${dateStr}T${startTimeStr}:00.000-03:00`);
+    limitEnd = new Date(`${dateStr}T${endTimeStr}:00.000-03:00`);
+  }
 
   for (const event of rawEvents) {
     // Ignorar eventos sin hora exacta (ej: eventos de todo el día)
@@ -55,13 +67,30 @@ const mapEventsToActivities = (userId, rawEvents) => {
       continue;
     }
 
-    // Solo trackeamos eventos que el usuario aceptó explícitamente, sea
-    // organizador o invitado. Google marca con `self: true` el registro del
-    // usuario autenticado: si rechazó (declined) o no confirmó (needsAction /
-    // tentative) el evento no se trackea.
-    const self = event.attendees.find((a) => a.self);
-    if (!self || self.responseStatus !== 'accepted') {
-      continue;
+   // Si la propiedad attendees existe y tiene gente, verificamos la respuesta.
+    // Si no existe, pasa de largo y se guarda igual.
+    if (event.attendees && event.attendees.length > 0) {
+      const self = event.attendees.find((a) => a.self);
+      if (!self || self.responseStatus !== 'accepted') {
+        continue;
+      }
+    }
+
+    let evtStart = new Date(event.start.dateTime);
+    let evtEnd = new Date(event.end.dateTime);
+
+    if (limitStart && evtEnd) {
+      // Si el evento termina ANTES de que empiece la jornada, o empieza DESPUÉS, se descarta.
+      if (evtEnd <= limitStart || evtStart >= limitEnd) continue;
+
+      // Si empieza antes de la jornada, lo "empujamos" al horario de entrada
+      if (evtStart < limitStart) evtStart = new Date(limitStart);
+
+      // Si termina después de la jornada, lo "cortamos" al horario de salida
+    
+      
+      // Chequeo de seguridad: si al recortarlo queda de 0 minutos, lo descartamos
+      if (evtStart.getTime() === evtEnd.getTime()) continue;
     }
 
     const isMeet = event.conferenceData?.conferenceSolution?.key?.type === 'hangoutsMeet';
@@ -71,8 +100,8 @@ const mapEventsToActivities = (userId, rawEvents) => {
       source: 'calendar',
       activityType: isMeet ? 'meeting' : 'event',
       externalId: event.id, // Usamos el ID del evento para evitar duplicados futuros
-      startTime: new Date(event.start.dateTime),
-      endTime: new Date(event.end.dateTime),
+      startTime: evtStart, 
+      endTime: evtEnd,
       metadata: {
         // El front lee `metadata.title` para todas las fuentes (Jira/Drive/Calendar);
         // antes el summary iba a la columna `title`, que el front no consume y por eso no
@@ -109,15 +138,23 @@ const persistActivities = async (activitiesToSave) => {
  * Lo usa el endpoint HTTP (controller). El batch usa persistCalendarActivitiesInWindow.
  */
 const persistCalendarActivities = async (userId, refreshToken, dateStr) => {
-  const startDate = new Date(dateStr);
-  const timeMin = startDate.toISOString();
 
-  const endDate = new Date(startDate);
-  endDate.setDate(endDate.getDate() + 1);
-  const timeMax = endDate.toISOString();
+  const user = await prisma.user.findUnique({ 
+    where: { id: userId },
+    select: {  workStartTime: true, workEndTime: true },
+  }); 
+
+  if (!user) {
+    throw new Error('Usuario no encontrado');
+  }
+
+  const timeMin = `${dateStr}T00:00:00.000-03:00`;
+  const timeMax = `${dateStr}T23:59:59.999-03:00`;
 
   const rawEvents = await getCalendarEventsForDay(refreshToken, timeMin, timeMax);
-  return persistActivities(mapEventsToActivities(userId, rawEvents));
+  const mappedActivities = mapEventsToActivities(userId, rawEvents, user, dateStr);
+
+  return persistActivities(mappedActivities);
 };
 
 /**
