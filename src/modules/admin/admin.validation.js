@@ -4,13 +4,23 @@ const z = require('zod');
 // (Antes estaba duplicada inline en admin.controller.js).
 const EMAIL_REGEX = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;
 
+// Regex para validar el nombre (solo letras, espacios, acentos y ñ/Ñ)
+const NAME_REGEX = /^[a-zA-ZáéíóúÁÉÍÓÚñÑ\s]+$/;
+
 const fullNameSchema = z
-  .string()
+  .string({
+    required_error: "El nombre no tiene un formato válido.",
+    invalid_type_error: "El nombre no tiene un formato válido."
+  })
   .trim()
   .min(1, 'El nombre no puede estar vacío')
-  .max(100, 'El nombre no puede superar los 100 caracteres');
+  .max(100, 'El nombre no puede superar los 100 caracteres')
+  .regex(NAME_REGEX, "El nombre no tiene un formato válido");
 
-const emailSchema = z.string().trim().regex(EMAIL_REGEX, 'El email no tiene un formato válido');
+const emailSchema = z.string({
+  required_error: "El campo email es inválido",
+  invalid_type_error: "El campo email es inválido"
+}).trim().regex(EMAIL_REGEX, 'El campo email es inválido');
 
 // Alta de usuario: fullName y email son requeridos.
 // El `role` NO se acepta del cliente a propósito: lo determina el server

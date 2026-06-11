@@ -12,6 +12,7 @@ const tokensHelper = require('./auth.tokens');
 const cookiesHelper = require('./auth.cookies');
 const prisma = require('../../shared/database/prisma');
 const logger = require('../../shared/utils/logger');
+const { createUserSchema } = require('../admin/admin.validation');
 
 const redirectToGoogle = (req, res) => {
   const url = getGoogleAuthUrl();
@@ -144,10 +145,15 @@ const me = async (req, res) => {
 const createBootstrapAdmin = async (req, res) => {
   try {
     const adminKey = req.header('X-Admin-Key');
-    const { email, fullName } = req.body;
-    if (!email) {
-      return res.status(400).json({ error: 'El campo email es requerido' });
+
+    // T012 / T027: Validación con Zod
+    const parsed = createUserSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.issues[0].message });
     }
+
+    const { email, fullName } = parsed.data;
+
     const newAdmin = await bootstrapAdmin(email, fullName, adminKey);
     return res.status(201).json({
       message: 'Administrador maestro creado con éxito',
