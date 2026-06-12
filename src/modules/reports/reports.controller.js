@@ -1,4 +1,4 @@
-const { getReportsHistory, ReportValidationError, generateReportForDate } = require('./reports.service');
+const { getReportsHistory, ReportValidationError, OverlapsDetectedError, generateReportForDate } = require('./reports.service');
 const logger = require('../../shared/utils/logger');
 
 const getReports = async (req, res) => {
@@ -32,6 +32,12 @@ const generateReport = async (req, res) => {
 
         return res.status(200).json(result);
     } catch (error) {
+        if (error instanceof OverlapsDetectedError) {
+            return res.status(error.statusCode).json({
+                error: error.message,
+                hasOverlaps: error.hasOverlaps
+            })
+        }
         if (error.statusCode) {
             return res.status(error.statusCode).json({ error: error.message });
         }

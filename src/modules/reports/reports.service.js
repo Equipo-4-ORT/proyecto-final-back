@@ -12,6 +12,29 @@ class ReportValidationError extends Error {
     }
 }
 
+class OverlapsDetectedError extends Error {
+    constructor() {
+        super('No se puede generar el reporte: existen actividades superpuestas en este día.');
+        this.name = 'OverlapsDetectedError';
+        this.hasOverlaps = true;
+        this.statusCode = 409;
+    }
+}
+
+const checkOverlaps = (activities) => {
+    if (!activities || activities.length <= 1) return false;
+
+    for (let i = 1; i < activities.length; i++) {
+        const currentStartTime = new Date(activities[i].startTime);
+        const previousEndTime = new Date(activities[i - 1].endTime);
+
+        if (currentStartTime < previousEndTime) {
+            return true;
+        }
+    }
+    return false;
+};
+
 const getReportsHistory = async (userId, { page = 1, limit = 10, from, to }) => {
     const parsedPage = Math.max(1, parseInt(page, 10) || 1);
     const parsedLimit = Math.min(100, Math.max(1, parseInt(limit, 10) || 10));
@@ -120,6 +143,11 @@ const generateReportForDate = async (user, dateStr) => {
         throw new ReportValidationError('No se encontraron actividades para la fecha proporcionada.');
     }
 
+    if (checkOverlaps(dailyActivities)) {
+        logger.warn('Generación de reporte abortada: Solapamiento detectado', { userId: user.id, date: dateStr })
+        throw new OverlapsDetectedError();
+    }
+
     logger.debug('Invocando IA', { activities: dailyActivities.length });
     const userContext = {
         name: user.fullName || user.email.split('@')[0],
@@ -169,5 +197,6 @@ const generateReportForDate = async (user, dateStr) => {
 module.exports = {
     getReportsHistory,
     ReportValidationError,
+    OverlapsDetectedError,
     generateReportForDate,
 };
