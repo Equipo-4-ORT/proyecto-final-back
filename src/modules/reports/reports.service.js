@@ -1,4 +1,8 @@
 const prisma = require('../../shared/database/prisma');
+const { getAdapter } = require('../ai/adapters');
+const { dayToUTCRange } = require('../activities/activities.service');
+const config = require('../../shared/config');
+const logger = require('../../shared/utils/logger');
 
 class ReportValidationError extends Error {
     constructor(message) {
@@ -64,7 +68,106 @@ const getReportsHistory = async (userId, { page = 1, limit = 10, from, to }) => 
     };
 };
 
+const generateReportForDate = async (user, dateStr) => {
+    const reportDate = new Date(`${dateStr}T00:00:00.000Z`);
+
+    if (isNaN(reportDate.getTime())) {
+        throw new ReportValidationError('El formato de la fecha es inválido.');
+    }
+
+    logger.debug('Buscando reporte previo', { userId: user.id, date: dateStr });
+
+    const existingReport = await prisma.report.findFirst({
+        where: {
+            userId: user.id,
+            reportDate,
+        },
+    });
+
+    if (existingReport) {
+        if (existingReport.status === 'SENT') {
+            return {
+                message: 'Ya existe un reporte para esta fecha y fue enviado exitosamente.',
+                reportId: existingReport.id,
+            };
+        }
+
+        if (existingReport.status === 'PENDING') {
+            logger.debug('Borrador encontrado; se devuelve sin llamar a la IA', { reportId: existingReport.id });
+            return {
+                message: 'Borrador recuperado exitosamente.',
+                report: existingReport,
+                preview: existingReport.content,
+            };
+        }
+    }
+
+    // El día se interpreta en la timezone del despliegue (la misma que usa el
+    // batch diario) para no perder/colar actividades por el offset UTC. Ver
+    // dayToUTCRange en activities.service.js.
+    const { gte, lt } = dayToUTCRange(dateStr, config.schedulerTimezone);
+
+    logger.debug('Buscando actividades diarias', { userId: user.id, gte, lt });
+    const dailyActivities = await prisma.dailyActivity.findMany({
+        where: {
+            userId: user.id,
+            startTime: { gte, lt },
+        },
+        orderBy: { startTime: 'asc' },
+    });
+
+    if (dailyActivities.length === 0) {
+        throw new ReportValidationError('No se encontraron actividades para la fecha proporcionada.');
+    }
+
+    logger.debug('Invocando IA', { activities: dailyActivities.length });
+    const userContext = {
+        name: user.fullName || user.email.split('@')[0],
+        role: user.role,
+        date: dateStr,
+    };
+
+    // El timeout y los reintentos los maneja el propio adapter (ver
+    // REQUEST_TIMEOUT_MS / MAX_RETRIES en los adapters); no duplicamos esa
+    // lógica acá para no dejar timers colgados ni competir con sus retries.
+    const aiAdapter = getAdapter();
+    const aiOutput = await aiAdapter.generateSummary(dailyActivities, userContext);
+
+    logger.debug('Persistiendo borrador', { userId: user.id });
+
+    let savedReport;
+    if (existingReport) {
+        savedReport = await prisma.report.update({
+            where: { id: existingReport.id },
+            data: {
+                totalHours: aiOutput.totalHours,
+                content: aiOutput,
+                status: 'PENDING'
+            }
+        });
+    } else {
+        savedReport = await prisma.report.create({
+            data: {
+                userId: user.id,
+                reportDate: reportDate,
+                totalHours: aiOutput.totalHours,
+                content: aiOutput,
+                status: 'PENDING'
+            }
+        });
+    }
+
+    logger.debug('Reporte generado correctamente', { reportId: savedReport.id });
+
+    return {
+        message: 'Reporte generado exitosamente.',
+        report: savedReport,
+        preview: aiOutput
+    };
+};
+
 module.exports = {
     getReportsHistory,
     ReportValidationError,
+    generateReportForDate,
 };
