@@ -80,16 +80,8 @@ describe('Report Service - generateReportForDate', () => {
   const mockUser = { id: 'user-123', email: 'test@test.com', role: 'EMPLOYEE' };
   const validDate = '2026-05-19';
 
- afterEach(() => {
+  afterEach(() => {
     jest.clearAllMocks();
-    
-    // 1. Limpiamos cualquier setTimeout que haya quedado a medio camino (ej: los 9s sobrantes)
-    if (jest.isMockFunction(setTimeout) || setTimeout.name === 'setTimeout') {
-        jest.clearAllTimers(); 
-    }
-    
-    // 2. Restauramos el reloj a la normalidad
-    jest.useRealTimers(); 
   });
 
   test('Debe generar un reporte exitosamente (Happy Path)', async () => {
@@ -134,30 +126,4 @@ describe('Report Service - generateReportForDate', () => {
 
     await expect(generateReportForDate(mockUser, validDate)).rejects.toThrow('503 Service Unavailable');
   });
-
- test('Debe lanzar error por Timeout si la IA tarda más de 30 segundos en responder', async () => {
-    jest.useFakeTimers();
-
-    prisma.report.findFirst.mockResolvedValue(null);
-    prisma.dailyActivity.findMany.mockResolvedValue([{ id: 1 }]);
-    
-    // Hacemos que la IA sea super lenta (40s)
-    getAdapter.mockReturnValue({
-        generateSummary: jest.fn(() => new Promise((resolve) => setTimeout(resolve, 40000)))
-    });
-
-    // 1. Iniciamos la generación del reporte (se queda PENDING)
-    const pendingReport = generateReportForDate(mockUser, validDate);
-
-    // 2. Preparamos el "atajador" de errores de Jest (esto empieza a escuchar AHORA)
-    const expectedError = expect(pendingReport).rejects.toThrow('Timeout: La IA tardó más de 30 segundos en responder');
-
-    // 3. AHORA SÍ, con el atajador ya escuchando, viajamos en el tiempo
-    await jest.advanceTimersByTimeAsync(31000); 
-
-    // 4. Aseguramos que el atajador capturó todo correctamente
-    await expectedError; 
-  });
- 
-  
 });

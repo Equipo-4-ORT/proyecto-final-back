@@ -1,5 +1,8 @@
 const prisma = require('../../shared/database/prisma');
 const { getAdapter } = require('../ai/adapters');
+const { dayToUTCRange } = require('../activities/activities.service');
+const config = require('../../shared/config');
+const logger = require('../../shared/utils/logger');
 
 class ReportValidationError extends Error {
     constructor(message) {
@@ -72,20 +75,17 @@ const generateReportForDate = async (user, dateStr) => {
         throw new ReportValidationError('El formato de la fecha es inválido.');
     }
 
-    console.log('🔍 DEBUG 1: Buscando reporte previo...');
-
+    logger.debug('Buscando reporte previo', { userId: user.id, date: dateStr });
 
     const existingReport = await prisma.report.findFirst({
-      where: {
-        
+        where: {
             userId: user.id,
-            reportDate: reportDate
-     
-    }
+            reportDate,
+        },
     });
 
     if (existingReport) {
-       if (existingReport.status === 'SENT') {
+        if (existingReport.status === 'SENT') {
             return {
                 message: 'Ya existe un reporte para esta fecha y fue enviado exitosamente.',
                 reportId: existingReport.id,
@@ -93,26 +93,25 @@ const generateReportForDate = async (user, dateStr) => {
         }
 
         if (existingReport.status === 'PENDING') {
-            console.log('✅ DEBUG 1.5: Borrador encontrado. Devolviendo sin llamar a la IA.');
+            logger.debug('Borrador encontrado; se devuelve sin llamar a la IA', { reportId: existingReport.id });
             return {
                 message: 'Borrador recuperado exitosamente.',
                 report: existingReport,
-                preview: existingReport.content 
+                preview: existingReport.content,
             };
         }
     }
-     
-    console.log('🔍 DEBUG 2: Buscando actividades diarias...');
-    const startOfDay = new Date(`${dateStr}T00:00:00.000Z`);
-    const endOfDay = new Date(`${dateStr}T23:59:59.999Z`);
 
-    const dailyActivities = await prisma.dailyActivity.findMany({ 
+    // El día se interpreta en la timezone del despliegue (la misma que usa el
+    // batch diario) para no perder/colar actividades por el offset UTC. Ver
+    // dayToUTCRange en activities.service.js.
+    const { gte, lt } = dayToUTCRange(dateStr, config.schedulerTimezone);
+
+    logger.debug('Buscando actividades diarias', { userId: user.id, gte, lt });
+    const dailyActivities = await prisma.dailyActivity.findMany({
         where: {
             userId: user.id,
-            startTime: {
-                gte: startOfDay,
-                lte: endOfDay,
-            }
+            startTime: { gte, lt },
         },
         orderBy: { startTime: 'asc' },
     });
@@ -121,24 +120,21 @@ const generateReportForDate = async (user, dateStr) => {
         throw new ReportValidationError('No se encontraron actividades para la fecha proporcionada.');
     }
 
-    console.log(`🔍 DEBUG 3: Invocando IA para ${dailyActivities.length} actividades...`);
+    logger.debug('Invocando IA', { activities: dailyActivities.length });
     const userContext = {
         name: user.fullName || user.email.split('@')[0],
         role: user.role,
         date: dateStr,
     };
 
+    // El timeout y los reintentos los maneja el propio adapter (ver
+    // REQUEST_TIMEOUT_MS / MAX_RETRIES en los adapters); no duplicamos esa
+    // lógica acá para no dejar timers colgados ni competir con sus retries.
     const aiAdapter = getAdapter();
-    const aiPromise = aiAdapter.generateSummary(dailyActivities, userContext);
-const timeoutPromise = new Promise((_, reject) => 
-    setTimeout(() => reject(new Error('Timeout: La IA tardó más de 30 segundos en responder')), 30000)
-);
+    const aiOutput = await aiAdapter.generateSummary(dailyActivities, userContext);
 
-    const aiOutput = await Promise.race([aiPromise, timeoutPromise]);
+    logger.debug('Persistiendo borrador', { userId: user.id });
 
-    console.log('🔍 DEBUG 4: Persistiendo borrador...');
-    
-    
     let savedReport;
     if (existingReport) {
         savedReport = await prisma.report.update({
@@ -161,7 +157,7 @@ const timeoutPromise = new Promise((_, reject) =>
         });
     }
 
-    console.log('✅ DEBUG 5: ¡Éxito!');
+    logger.debug('Reporte generado correctamente', { reportId: savedReport.id });
 
     return {
         message: 'Reporte generado exitosamente.',
