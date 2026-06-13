@@ -159,11 +159,11 @@ describe('Auth Controller (cookies HttpOnly)', () => {
             expect(res.redirect).toHaveBeenCalledWith('http://localhost:5173/login?error=insufficient_scopes');
         });
 
-        test('UserNotActiveError → /login?error=user_not_active', async () => {
+        test('UserNotActiveError → /login?error=unauthorized_user', async () => {
             req.query = { code: 'c', state: 's' };
             authService.handleGoogleCallback.mockRejectedValue(new authService.UserNotActiveError('a@b.com'));
             await googleCallback(req, res);
-            expect(res.redirect).toHaveBeenCalledWith('http://localhost:5173/login?error=user_not_active');
+            expect(res.redirect).toHaveBeenCalledWith('http://localhost:5173/login?error=unauthorized_user');
         });
 
         test('UnauthorizedUserError → /login?error=unauthorized_user (FRONTEND_BASE_URL, no FRONTEND_URL)', async () => {
@@ -289,27 +289,28 @@ describe('Auth Controller (cookies HttpOnly)', () => {
 
     // ── createBootstrapAdmin ───────────────────────────────────────────────────
     describe('createBootstrapAdmin()', () => {
-        test('400 si falta email', async () => {
+        test('400 si falla validación de Zod (falta email)', async () => {
             req.header = jest.fn().mockReturnValue('key');
-            req.body = {};
+            req.body = { fullName: 'Admin Valido' };
             await createBootstrapAdmin(req, res);
             expect(res.status).toHaveBeenCalledWith(400);
+            expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ error: expect.any(String) }));
         });
 
         test('201 con admin creado', async () => {
             req.header = jest.fn().mockReturnValue('key');
-            req.body = { email: 'admin@b.com', fullName: 'Admin' };
-            authService.bootstrapAdmin.mockResolvedValue({ id: 'a1', email: 'admin@b.com', role: 'ADMIN' });
+            req.body = { email: 'admin@dominio.com', fullName: 'Admin Valido' };
+            authService.bootstrapAdmin.mockResolvedValue({ id: 'a1', email: 'admin@dominio.com', role: 'ADMIN' });
             await createBootstrapAdmin(req, res);
             expect(res.status).toHaveBeenCalledWith(201);
             expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
-                admin: expect.objectContaining({ email: 'admin@b.com', role: 'ADMIN' }),
+                admin: expect.objectContaining({ email: 'admin@dominio.com', role: 'ADMIN' }),
             }));
         });
 
         test('401 si InvalidAdminKeyError', async () => {
             req.header = jest.fn().mockReturnValue('bad');
-            req.body = { email: 'a@b.com' };
+            req.body = { email: 'admin@dominio.com', fullName: 'Admin Valido' };
             authService.bootstrapAdmin.mockRejectedValue(new authService.InvalidAdminKeyError());
             await createBootstrapAdmin(req, res);
             expect(res.status).toHaveBeenCalledWith(401);
@@ -317,7 +318,7 @@ describe('Auth Controller (cookies HttpOnly)', () => {
 
         test('409 si AdminAlreadyExistsError', async () => {
             req.header = jest.fn().mockReturnValue('key');
-            req.body = { email: 'a@b.com' };
+            req.body = { email: 'admin@dominio.com', fullName: 'Admin Valido' };
             authService.bootstrapAdmin.mockRejectedValue(new authService.AdminAlreadyExistsError());
             await createBootstrapAdmin(req, res);
             expect(res.status).toHaveBeenCalledWith(409);

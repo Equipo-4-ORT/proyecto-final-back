@@ -19,12 +19,13 @@ const getSettings = async (req, res) => {
 const updateSettings = async (req, res) => {
     try {
         const userId = req.user.id;
-        const { workStartTime, workEndTime, avoidOverlaps } = req.body;
+        const { workStartTime, workEndTime, avoidOverlaps, defaultDuration } = req.body;
 
         const updatedSettings = await updateUserSettings(userId, {
             workStartTime,
             workEndTime,
             avoidOverlaps,
+            defaultDuration,
         });
         return res.status(200).json(updatedSettings);
     } catch (error) {
