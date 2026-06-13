@@ -5,169 +5,216 @@ const config = require('../../shared/config');
 const logger = require('../../shared/utils/logger');
 
 class ReportValidationError extends Error {
-    constructor(message) {
-        super(message);
-        this.name = 'ReportValidationError';
-        this.statusCode = 400;
-    }
+  constructor(message) {
+    super(message);
+    this.name = 'ReportValidationError';
+    this.statusCode = 400;
+  }
 }
 
-const getReportsHistory = async (userId, { page = 1, limit = 10, from, to }) => {
-    const parsedPage = Math.max(1, parseInt(page, 10) || 1);
-    const parsedLimit = Math.min(100, Math.max(1, parseInt(limit, 10) || 10));
-    const skip = (parsedPage - 1) * parsedLimit;
-    const take = parsedLimit;
+class OverlapsDetectedError extends Error {
+  constructor() {
+    super('No se puede generar el reporte: existen actividades superpuestas en este día.');
+    this.name = 'OverlapsDetectedError';
+    this.hasOverlaps = true;
+    this.statusCode = 409;
+  }
+}
 
-    const where = { userId };
+const checkOverlaps = async (userId, activities) => {
+  const userSettings = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { avoidOverlaps: true },
+  });
 
-    if (from || to) {
-        where.reportDate = {};
-        if (from) {
-            const fromDate = new Date(from);
-            // Si la fecha es inválida (ej: "hola"), getTime() da NaN
-            if (isNaN(fromDate.getTime())) {
-                throw new ReportValidationError('El formato de la fecha "from" es inválido.');
-            }
-            where.reportDate.gte = fromDate;
-        }
-        if (to) {
-            const toDate = new Date(to);
-            if (isNaN(toDate.getTime())) {
-                throw new ReportValidationError('El formato de la fecha "to" es inválido.');
-            }
-            where.reportDate.lte = toDate;
-        }
+  if (!userSettings?.avoidOverlaps) return false;
+
+  if (!activities || activities.length <= 1) return false;
+
+  // Requiere `activities` ordenadas por startTime asc (garantizado por el
+  // orderBy de la query). Sin ese orden, comparar cada actividad con la
+  // inmediatamente anterior produce falsos negativos.
+  for (let i = 1; i < activities.length; i++) {
+    const currentStartTime = new Date(activities[i].startTime);
+    const previousEndTime = new Date(activities[i - 1].endTime);
+
+    if (currentStartTime < previousEndTime) {
+      return true;
     }
+  }
+  return false;
+};
 
-    const [total, reports] = await Promise.all([
-        prisma.report.count({ where }),
-        prisma.report.findMany({
-            where,
-            skip,
-            take,
-            orderBy: { reportDate: 'desc' },
-        }),
-    ]);
+const getReportsHistory = async (userId, { page = 1, limit = 10, from, to }) => {
+  const parsedPage = Math.max(1, parseInt(page, 10) || 1);
+  const parsedLimit = Math.min(100, Math.max(1, parseInt(limit, 10) || 10));
+  const skip = (parsedPage - 1) * parsedLimit;
+  const take = parsedLimit;
 
-    const mappedReports = reports.map((r) => ({
-        id: r.id,
-        date: r.reportDate.toISOString().split('T')[0],
-        status: r.status,
-        totalHours: r.totalHours || 0,
-        xlsxUrl: r.xlsxUrl || null,
-    }));
+  const where = { userId };
 
-    return {
-        data: mappedReports,
-        meta: {
-            total,
-            page: parsedPage,
-            limit: take,
-            totalPages: Math.ceil(total / take),
-        },
-    };
+  if (from || to) {
+    where.reportDate = {};
+    if (from) {
+      const fromDate = new Date(from);
+      // Si la fecha es inválida (ej: "hola"), getTime() da NaN
+      if (isNaN(fromDate.getTime())) {
+        throw new ReportValidationError('El formato de la fecha "from" es inválido.');
+      }
+      where.reportDate.gte = fromDate;
+    }
+    if (to) {
+      const toDate = new Date(to);
+      if (isNaN(toDate.getTime())) {
+        throw new ReportValidationError('El formato de la fecha "to" es inválido.');
+      }
+      where.reportDate.lte = toDate;
+    }
+  }
+
+  const [total, reports] = await Promise.all([
+    prisma.report.count({ where }),
+    prisma.report.findMany({
+      where,
+      skip,
+      take,
+      orderBy: { reportDate: 'desc' },
+    }),
+  ]);
+
+  const mappedReports = reports.map((r) => ({
+    id: r.id,
+    date: r.reportDate.toISOString().split('T')[0],
+    status: r.status,
+    totalHours: r.totalHours || 0,
+    xlsxUrl: r.xlsxUrl || null,
+  }));
+
+  return {
+    data: mappedReports,
+    meta: {
+      total,
+      page: parsedPage,
+      limit: take,
+      totalPages: Math.ceil(total / take),
+    },
+  };
 };
 
 const generateReportForDate = async (user, dateStr) => {
-    const reportDate = new Date(`${dateStr}T00:00:00.000Z`);
+  const reportDate = new Date(`${dateStr}T00:00:00.000Z`);
 
-    if (isNaN(reportDate.getTime())) {
-        throw new ReportValidationError('El formato de la fecha es inválido.');
+  if (isNaN(reportDate.getTime())) {
+    throw new ReportValidationError('El formato de la fecha es inválido.');
+  }
+
+  logger.debug('Buscando reporte previo', { userId: user.id, date: dateStr });
+
+  const existingReport = await prisma.report.findFirst({
+    where: {
+      userId: user.id,
+      reportDate,
+    },
+  });
+
+  if (existingReport) {
+    if (existingReport.status === 'SENT') {
+      return {
+        message: 'Ya existe un reporte para esta fecha y fue enviado exitosamente.',
+        reportId: existingReport.id,
+        hasOverlaps: false,
+      };
     }
 
-    logger.debug('Buscando reporte previo', { userId: user.id, date: dateStr });
+    if (existingReport.status === 'PENDING') {
+      logger.debug('Borrador encontrado; se devuelve sin llamar a la IA', {
+        reportId: existingReport.id,
+      });
+      return {
+        message: 'Borrador recuperado exitosamente.',
+        report: existingReport,
+        preview: existingReport.content,
+        hasOverlaps: false,
+      };
+    }
+  }
 
-    const existingReport = await prisma.report.findFirst({
-        where: {
-            userId: user.id,
-            reportDate,
-        },
+  // El día se interpreta en la timezone del despliegue (la misma que usa el
+  // batch diario) para no perder/colar actividades por el offset UTC. Ver
+  // dayToUTCRange en activities.service.js.
+  const { gte, lt } = dayToUTCRange(dateStr, config.schedulerTimezone);
+
+  logger.debug('Buscando actividades diarias', { userId: user.id, gte, lt });
+  const dailyActivities = await prisma.dailyActivity.findMany({
+    where: {
+      userId: user.id,
+      startTime: { gte, lt },
+    },
+    // Orden ascendente por startTime: lo consume checkOverlaps más abajo para
+    // detectar solapamientos comparando cada actividad con la anterior.
+    orderBy: { startTime: 'asc' },
+  });
+
+  if (dailyActivities.length === 0) {
+    throw new ReportValidationError('No se encontraron actividades para la fecha proporcionada.');
+  }
+
+  if (await checkOverlaps(user.id, dailyActivities)) {
+    logger.info('Generación de reporte abortada: Solapamiento detectado', {
+      userId: user.id,
+      date: dateStr,
     });
+    throw new OverlapsDetectedError();
+  }
 
-    if (existingReport) {
-        if (existingReport.status === 'SENT') {
-            return {
-                message: 'Ya existe un reporte para esta fecha y fue enviado exitosamente.',
-                reportId: existingReport.id,
-            };
-        }
+  logger.debug('Invocando IA', { activities: dailyActivities.length });
+  const userContext = {
+    name: user.fullName || user.email.split('@')[0],
+    role: user.role,
+    date: dateStr,
+  };
 
-        if (existingReport.status === 'PENDING') {
-            logger.debug('Borrador encontrado; se devuelve sin llamar a la IA', { reportId: existingReport.id });
-            return {
-                message: 'Borrador recuperado exitosamente.',
-                report: existingReport,
-                preview: existingReport.content,
-            };
-        }
-    }
+  // El timeout y los reintentos los maneja el propio adapter (ver
+  // REQUEST_TIMEOUT_MS / MAX_RETRIES en los adapters); no duplicamos esa
+  // lógica acá para no dejar timers colgados ni competir con sus retries.
+  const aiAdapter = getAdapter();
+  const aiOutput = await aiAdapter.generateSummary(dailyActivities, userContext);
 
-    // El día se interpreta en la timezone del despliegue (la misma que usa el
-    // batch diario) para no perder/colar actividades por el offset UTC. Ver
-    // dayToUTCRange en activities.service.js.
-    const { gte, lt } = dayToUTCRange(dateStr, config.schedulerTimezone);
-
-    logger.debug('Buscando actividades diarias', { userId: user.id, gte, lt });
-    const dailyActivities = await prisma.dailyActivity.findMany({
-        where: {
-            userId: user.id,
-            startTime: { gte, lt },
-        },
-        orderBy: { startTime: 'asc' },
+  let savedReport;
+  if (existingReport) {
+    savedReport = await prisma.report.update({
+      where: { id: existingReport.id },
+      data: {
+        totalHours: aiOutput.totalHours,
+        content: aiOutput,
+        status: 'PENDING',
+      },
     });
+  } else {
+    savedReport = await prisma.report.create({
+      data: {
+        userId: user.id,
+        reportDate: reportDate,
+        totalHours: aiOutput.totalHours,
+        content: aiOutput,
+        status: 'PENDING',
+      },
+    });
+  }
 
-    if (dailyActivities.length === 0) {
-        throw new ReportValidationError('No se encontraron actividades para la fecha proporcionada.');
-    }
+  logger.debug('Reporte generado correctamente', { reportId: savedReport.id });
 
-    logger.debug('Invocando IA', { activities: dailyActivities.length });
-    const userContext = {
-        name: user.fullName || user.email.split('@')[0],
-        role: user.role,
-        date: dateStr,
-    };
-
-    // El timeout y los reintentos los maneja el propio adapter (ver
-    // REQUEST_TIMEOUT_MS / MAX_RETRIES en los adapters); no duplicamos esa
-    // lógica acá para no dejar timers colgados ni competir con sus retries.
-    const aiAdapter = getAdapter();
-    const aiOutput = await aiAdapter.generateSummary(dailyActivities, userContext);
-
-    logger.debug('Persistiendo borrador', { userId: user.id });
-
-    let savedReport;
-    if (existingReport) {
-        savedReport = await prisma.report.update({
-            where: { id: existingReport.id },
-            data: {
-                totalHours: aiOutput.totalHours,
-                content: aiOutput,
-                status: 'PENDING'
-            }
-        });
-    } else {
-        savedReport = await prisma.report.create({
-            data: {
-                userId: user.id,
-                reportDate: reportDate,
-                totalHours: aiOutput.totalHours,
-                content: aiOutput,
-                status: 'PENDING'
-            }
-        });
-    }
-
-    logger.debug('Reporte generado correctamente', { reportId: savedReport.id });
-
-    return {
-        message: 'Reporte generado exitosamente.',
-        report: savedReport,
-        preview: aiOutput
-    };
+  return {
+    message: 'Reporte generado exitosamente.',
+    report: savedReport,
+    preview: aiOutput,
+    hasOverlaps: false,
+  };
 };
 
 module.exports = {
-    getReportsHistory,
-    ReportValidationError,
-    generateReportForDate,
+  getReportsHistory,
+  ReportValidationError,
+  OverlapsDetectedError,
+  generateReportForDate,
 };

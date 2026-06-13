@@ -1,4 +1,9 @@
-const { getReportsHistory, generateReportForDate, ReportValidationError } = require('../../../src/modules/reports/reports.service');
+const {
+  getReportsHistory,
+  generateReportForDate,
+  ReportValidationError,
+  OverlapsDetectedError,
+} = require('../../../src/modules/reports/reports.service');
 const prisma = require('../../../src/shared/database/prisma');
 // Asegurate de que esta ruta coincida con la ubicación real de tu index de adapters
 const { getAdapter } = require('../../../src/modules/ai/adapters');
@@ -10,16 +15,19 @@ jest.mock('../../../src/shared/database/prisma', () => ({
     findMany: jest.fn(),
     findFirst: jest.fn(),
     create: jest.fn(),
-    update: jest.fn()
+    update: jest.fn(),
   },
   dailyActivity: {
-    findMany: jest.fn()
-  }
+    findMany: jest.fn(),
+  },
+  user: {
+    findUnique: jest.fn(),
+  },
 }));
 
 // 2. Mockeamos el Adapter de IA
 jest.mock('../../../src/modules/ai/adapters', () => ({
-  getAdapter: jest.fn()
+  getAdapter: jest.fn(),
 }));
 
 describe('Reports Service - getReportsHistory', () => {
@@ -33,18 +41,20 @@ describe('Reports Service - getReportsHistory', () => {
     const mockDate = new Date('2026-06-02T12:00:00Z');
     prisma.report.count.mockResolvedValue(15);
     prisma.report.findMany.mockResolvedValue([
-      { id: 'rep-1', reportDate: mockDate, status: 'SENT', totalHours: 40, xlsxUrl: 'url.xlsx' }
+      { id: 'rep-1', reportDate: mockDate, status: 'SENT', totalHours: 40, xlsxUrl: 'url.xlsx' },
     ]);
 
     const result = await getReportsHistory(mockUserId, { page: 2, limit: 5 });
 
     expect(prisma.report.count).toHaveBeenCalledWith({ where: { userId: mockUserId } });
-    expect(prisma.report.findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { userId: mockUserId },
-      skip: 5,
-      take: 5,
-      orderBy: { reportDate: 'desc' }
-    }));
+    expect(prisma.report.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { userId: mockUserId },
+        skip: 5,
+        take: 5,
+        orderBy: { reportDate: 'desc' },
+      }),
+    );
 
     expect(result.meta.total).toBe(15);
     expect(result.meta.page).toBe(2);
@@ -65,14 +75,16 @@ describe('Reports Service - getReportsHistory', () => {
       userId: mockUserId,
       reportDate: {
         gte: new Date(from),
-        lte: new Date(to)
-      }
+        lte: new Date(to),
+      },
     };
 
     expect(prisma.report.count).toHaveBeenCalledWith({ where: expectedWhere });
-    expect(prisma.report.findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: expectedWhere
-    }));
+    expect(prisma.report.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expectedWhere,
+      }),
+    );
   });
 });
 
@@ -80,19 +92,22 @@ describe('Report Service - generateReportForDate', () => {
   const mockUser = { id: 'user-123', email: 'test@test.com', role: 'EMPLOYEE' };
   const validDate = '2026-05-19';
 
+  beforeEach(() => {
+    // Default: usuario sin la validación de solapamientos habilitada.
+    prisma.user.findUnique.mockResolvedValue({ avoidOverlaps: false });
+  });
+
   afterEach(() => {
     jest.clearAllMocks();
   });
 
   test('Debe generar un reporte exitosamente (Happy Path)', async () => {
     prisma.report.findFirst.mockResolvedValue(null);
-    prisma.dailyActivity.findMany.mockResolvedValue([
-        { id: 1, title: 'Reunión', duration: 120 }
-    ]);
-    
+    prisma.dailyActivity.findMany.mockResolvedValue([{ id: 1, title: 'Reunión', duration: 120 }]);
+
     const mockAiOutput = { totalHours: 2, daySummary: 'Día productivo', rows: [] };
     getAdapter.mockReturnValue({
-        generateSummary: jest.fn().mockResolvedValue(mockAiOutput)
+      generateSummary: jest.fn().mockResolvedValue(mockAiOutput),
     });
 
     prisma.report.create.mockResolvedValue({ id: 'report-1', status: 'PENDING' });
@@ -111,7 +126,7 @@ describe('Report Service - generateReportForDate', () => {
 
     expect(result.message).toBe('Ya existe un reporte para esta fecha y fue enviado exitosamente.');
     expect(result.reportId).toBe('report-1');
-    
+
     expect(prisma.dailyActivity.findMany).not.toHaveBeenCalled();
     expect(getAdapter).not.toHaveBeenCalled();
   });
@@ -119,11 +134,77 @@ describe('Report Service - generateReportForDate', () => {
   test('Debe propagar el error si la IA falla (ej: 503 Service Unavailable)', async () => {
     prisma.report.findFirst.mockResolvedValue(null);
     prisma.dailyActivity.findMany.mockResolvedValue([{ id: 1 }]);
-    
+
     getAdapter.mockReturnValue({
-        generateSummary: jest.fn().mockRejectedValue(new Error('503 Service Unavailable'))
+      generateSummary: jest.fn().mockRejectedValue(new Error('503 Service Unavailable')),
     });
 
-    await expect(generateReportForDate(mockUser, validDate)).rejects.toThrow('503 Service Unavailable');
+    await expect(generateReportForDate(mockUser, validDate)).rejects.toThrow(
+      '503 Service Unavailable',
+    );
+  });
+
+  describe('Validación de solapamientos (avoidOverlaps)', () => {
+    // Dos actividades que se pisan: la 2da arranca antes de que termine la 1ra.
+    const overlappingActivities = [
+      { id: 1, startTime: '2026-05-19T09:00:00Z', endTime: '2026-05-19T10:00:00Z' },
+      { id: 2, startTime: '2026-05-19T09:30:00Z', endTime: '2026-05-19T11:00:00Z' },
+    ];
+
+    test('Si avoidOverlaps está apagado, NO chequea solapamientos y genera el reporte (hasOverlaps: false)', async () => {
+      prisma.user.findUnique.mockResolvedValue({ avoidOverlaps: false });
+      prisma.report.findFirst.mockResolvedValue(null);
+      // Aún con actividades solapadas, al estar el flag apagado debe generar.
+      prisma.dailyActivity.findMany.mockResolvedValue(overlappingActivities);
+
+      const mockAiOutput = { totalHours: 2, daySummary: 'ok', rows: [] };
+      getAdapter.mockReturnValue({
+        generateSummary: jest.fn().mockResolvedValue(mockAiOutput),
+      });
+      prisma.report.create.mockResolvedValue({ id: 'report-1', status: 'PENDING' });
+
+      const result = await generateReportForDate(mockUser, validDate);
+
+      expect(result.hasOverlaps).toBe(false);
+      expect(result.message).toBe('Reporte generado exitosamente.');
+      expect(getAdapter).toHaveBeenCalled();
+      expect(prisma.report.create).toHaveBeenCalled();
+    });
+
+    test('Si avoidOverlaps está prendido y hay solapamientos, bloquea y NO invoca a la IA', async () => {
+      prisma.user.findUnique.mockResolvedValue({ avoidOverlaps: true });
+      prisma.report.findFirst.mockResolvedValue(null);
+      prisma.dailyActivity.findMany.mockResolvedValue(overlappingActivities);
+
+      await expect(generateReportForDate(mockUser, validDate)).rejects.toThrow(
+        OverlapsDetectedError,
+      );
+
+      // El bloqueo debe ocurrir antes de gastar una llamada a la IA o persistir.
+      expect(getAdapter).not.toHaveBeenCalled();
+      expect(prisma.report.create).not.toHaveBeenCalled();
+    });
+
+    test('Si avoidOverlaps está prendido pero NO hay solapamientos, genera el reporte (hasOverlaps: false)', async () => {
+      prisma.user.findUnique.mockResolvedValue({ avoidOverlaps: true });
+      prisma.report.findFirst.mockResolvedValue(null);
+      // Actividades consecutivas que no se pisan (una termina cuando arranca la otra).
+      prisma.dailyActivity.findMany.mockResolvedValue([
+        { id: 1, startTime: '2026-05-19T09:00:00Z', endTime: '2026-05-19T10:00:00Z' },
+        { id: 2, startTime: '2026-05-19T10:00:00Z', endTime: '2026-05-19T11:00:00Z' },
+      ]);
+
+      const mockAiOutput = { totalHours: 2, daySummary: 'ok', rows: [] };
+      getAdapter.mockReturnValue({
+        generateSummary: jest.fn().mockResolvedValue(mockAiOutput),
+      });
+      prisma.report.create.mockResolvedValue({ id: 'report-1', status: 'PENDING' });
+
+      const result = await generateReportForDate(mockUser, validDate);
+
+      expect(result.hasOverlaps).toBe(false);
+      expect(result.message).toBe('Reporte generado exitosamente.');
+      expect(getAdapter).toHaveBeenCalled();
+    });
   });
 });
