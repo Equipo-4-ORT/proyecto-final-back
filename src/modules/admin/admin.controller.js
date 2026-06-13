@@ -47,6 +47,16 @@ const getUsers = async (req, res) => {
 
 const patchUserStatus = async (req, res) => {
   try {
+    const targetUserId = req.params.id;
+    const currentUserId = req.user?.id;
+
+    if (String(targetUserId) === String(currentUserId)) {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'Un administrador no puede cambiar el estado de su propia cuenta.'
+      });
+    }
+
     const user = await toggleUserStatus(req.params.id);
     return res.status(200).json(user);
   } catch (error) {

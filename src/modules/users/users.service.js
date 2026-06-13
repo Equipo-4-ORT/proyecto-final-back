@@ -70,6 +70,7 @@ const getUserSettings = async (userId) => {
       workStartTime: true,
       workEndTime: true,
       avoidOverlaps: true,
+      defaultDuration: true,
     },
   });
 
@@ -79,47 +80,54 @@ const getUserSettings = async (userId) => {
 };
 
 const updateUserSettings = async (userId, settingsData) => {
-const { workStartTime, workEndTime, avoidOverlaps } = settingsData;
-const dataToUpdate = {};
-const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/; 
+  const { workStartTime, workEndTime, avoidOverlaps, defaultDuration } = settingsData;
+  const dataToUpdate = {};
+  const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
 
-if (workStartTime !== undefined) {
+  if (workStartTime !== undefined) {
     if (!timeRegex.test(workStartTime)) {
       throw new UserValidationError('Formato de hora de inicio inválido. Debe ser HH:MM.');
     }
     dataToUpdate.workStartTime = workStartTime;
   }
-if (workEndTime !== undefined) {
+  if (workEndTime !== undefined) {
     if (!timeRegex.test(workEndTime)) {
       throw new UserValidationError('Formato de hora de fin inválido. Debe ser HH:MM.');
     }
     dataToUpdate.workEndTime = workEndTime;
   }
 
-// No comparamos inicio vs fin: una jornada puede cruzar la medianoche
-// (ej. turno nocturno 21:00 -> 02:00), así que fin < inicio es válido.
+  // No comparamos inicio vs fin: una jornada puede cruzar la medianoche
+  // (ej. turno nocturno 21:00 -> 02:00), así que fin < inicio es válido.
 
-if (avoidOverlaps !== undefined) {
+  if (avoidOverlaps !== undefined) {
     if (typeof avoidOverlaps !== 'boolean') {
       throw new UserValidationError('El campo avoidOverlaps debe ser un valor booleano (true o false).');
     }
     dataToUpdate.avoidOverlaps = avoidOverlaps;
   }
+  if (defaultDuration !== undefined) {
+    if (!Number.isInteger(defaultDuration) || defaultDuration <= 0 || defaultDuration > 180) {
+      throw new UserValidationError('La duración por defecto debe ser un número entero de minutos entre 1 y 180.');
+    }
+    dataToUpdate.defaultDuration = defaultDuration;
+  }
 
   if (Object.keys(dataToUpdate).length === 0) {
     throw new UserValidationError('No se enviaron campos válidos para actualizar.');
   }
-const updatedUser = await prisma.user.update({
+  const updatedUser = await prisma.user.update({
     where: { id: userId },
     data: dataToUpdate,
     select: {
       workStartTime: true,
       workEndTime: true,
-      avoidOverlaps: true
+      avoidOverlaps: true,
+      defaultDuration: true,
     }
   });
 
-return updatedUser;
+  return updatedUser;
 };
 
 

@@ -12,6 +12,7 @@ const tokensHelper = require('./auth.tokens');
 const cookiesHelper = require('./auth.cookies');
 const prisma = require('../../shared/database/prisma');
 const logger = require('../../shared/utils/logger');
+const { createUserSchema } = require('../admin/admin.validation');
 
 // Destino en el front según el rol del usuario. El backend es quien decide
 // a dónde va cada rol; el front solo lee el parámetro y lo valida.
@@ -64,11 +65,8 @@ const googleCallback = async (req, res) => {
       logger.warn('Usuario intentó loguearse sin otorgar todos los permisos');
       return res.redirect(`${process.env.FRONTEND_BASE_URL}/login?error=insufficient_scopes`);
     }
-    if (error instanceof UserNotActiveError) {
-      logger.warn('Intento de login denegado: el usuario no está activo');
-      return res.redirect(`${process.env.FRONTEND_BASE_URL}/login?error=user_not_active`);
-    }
-    if (error instanceof UnauthorizedUserError) {
+    if (error instanceof UserNotActiveError || error instanceof UnauthorizedUserError) {
+      logger.warn('Login denegado: cuenta inactiva o no autorizada', { type: error.name });
       return res.redirect(`${process.env.FRONTEND_BASE_URL}/login?error=unauthorized_user`);
     }
     logger.error('Error en Google OAuth callback', { error: error.message });
@@ -157,10 +155,14 @@ const me = async (req, res) => {
 const createBootstrapAdmin = async (req, res) => {
   try {
     const adminKey = req.header('X-Admin-Key');
-    const { email, fullName } = req.body;
-    if (!email) {
-      return res.status(400).json({ error: 'El campo email es requerido' });
+
+    const parsed = createUserSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.issues[0].message });
     }
+
+    const { email, fullName } = parsed.data;
+
     const newAdmin = await bootstrapAdmin(email, fullName, adminKey);
     return res.status(201).json({
       message: 'Administrador maestro creado con éxito',
