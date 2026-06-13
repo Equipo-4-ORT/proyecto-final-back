@@ -66,7 +66,7 @@ const googleCallback = async (req, res) => {
       return res.redirect(`${process.env.FRONTEND_BASE_URL}/login?error=insufficient_scopes`);
     }
     if (error instanceof UserNotActiveError || error instanceof UnauthorizedUserError) {
-      logger.warn('Tu cuenta no está habilitada');
+      logger.warn('Login denegado: cuenta inactiva o no autorizada', { type: error.name });
       return res.redirect(`${process.env.FRONTEND_BASE_URL}/login?error=unauthorized_user`);
     }
     logger.error('Error en Google OAuth callback', { error: error.message });
@@ -156,7 +156,6 @@ const createBootstrapAdmin = async (req, res) => {
   try {
     const adminKey = req.header('X-Admin-Key');
 
-    // T012 / T027: Validación con Zod
     const parsed = createUserSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: parsed.error.issues[0].message });

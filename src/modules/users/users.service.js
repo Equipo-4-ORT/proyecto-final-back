@@ -107,8 +107,8 @@ const updateUserSettings = async (userId, settingsData) => {
     dataToUpdate.avoidOverlaps = avoidOverlaps;
   }
   if (defaultDuration !== undefined) {
-    if (typeof defaultDuration !== 'number' || defaultDuration <= 0) {
-      throw new UserValidationError('No se enviaron campos válidos para actualizar.')
+    if (!Number.isInteger(defaultDuration) || defaultDuration <= 0 || defaultDuration > 180) {
+      throw new UserValidationError('La duración por defecto debe ser un número entero de minutos entre 1 y 180.');
     }
     dataToUpdate.defaultDuration = defaultDuration;
   }

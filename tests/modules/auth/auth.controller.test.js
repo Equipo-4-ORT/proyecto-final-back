@@ -288,11 +288,10 @@ describe('Auth Controller (cookies HttpOnly)', () => {
     });
 
     // ── createBootstrapAdmin ───────────────────────────────────────────────────
-    // ── createBootstrapAdmin ───────────────────────────────────────────────────
     describe('createBootstrapAdmin()', () => {
         test('400 si falla validación de Zod (falta email)', async () => {
             req.header = jest.fn().mockReturnValue('key');
-            req.body = { fullName: 'Admin Valido' }; // Falta email para que Zod falle
+            req.body = { fullName: 'Admin Valido' };
             await createBootstrapAdmin(req, res);
             expect(res.status).toHaveBeenCalledWith(400);
             expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ error: expect.any(String) }));
@@ -300,7 +299,7 @@ describe('Auth Controller (cookies HttpOnly)', () => {
 
         test('201 con admin creado', async () => {
             req.header = jest.fn().mockReturnValue('key');
-            req.body = { email: 'admin@dominio.com', fullName: 'Admin Valido' }; // Datos válidos para Zod
+            req.body = { email: 'admin@dominio.com', fullName: 'Admin Valido' };
             authService.bootstrapAdmin.mockResolvedValue({ id: 'a1', email: 'admin@dominio.com', role: 'ADMIN' });
             await createBootstrapAdmin(req, res);
             expect(res.status).toHaveBeenCalledWith(201);
@@ -311,7 +310,7 @@ describe('Auth Controller (cookies HttpOnly)', () => {
 
         test('401 si InvalidAdminKeyError', async () => {
             req.header = jest.fn().mockReturnValue('bad');
-            req.body = { email: 'admin@dominio.com', fullName: 'Admin Valido' }; // Datos válidos para Zod
+            req.body = { email: 'admin@dominio.com', fullName: 'Admin Valido' };
             authService.bootstrapAdmin.mockRejectedValue(new authService.InvalidAdminKeyError());
             await createBootstrapAdmin(req, res);
             expect(res.status).toHaveBeenCalledWith(401);
@@ -319,7 +318,7 @@ describe('Auth Controller (cookies HttpOnly)', () => {
 
         test('409 si AdminAlreadyExistsError', async () => {
             req.header = jest.fn().mockReturnValue('key');
-            req.body = { email: 'admin@dominio.com', fullName: 'Admin Valido' }; // Datos válidos para Zod
+            req.body = { email: 'admin@dominio.com', fullName: 'Admin Valido' };
             authService.bootstrapAdmin.mockRejectedValue(new authService.AdminAlreadyExistsError());
             await createBootstrapAdmin(req, res);
             expect(res.status).toHaveBeenCalledWith(409);

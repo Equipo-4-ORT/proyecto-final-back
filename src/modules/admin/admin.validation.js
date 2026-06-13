@@ -4,8 +4,9 @@ const z = require('zod');
 // (Antes estaba duplicada inline en admin.controller.js).
 const EMAIL_REGEX = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;
 
-// Regex para validar el nombre (solo letras, espacios, acentos y ñ/Ñ)
-const NAME_REGEX = /^[a-zA-ZáéíóúÁÉÍÓÚñÑ\s]+$/;
+// Nombre: letras (con acentos/diéresis vía \p{L}), espacios y apóstrofe.
+// Se excluyen a propósito puntos, guiones y guiones bajos.
+const NAME_REGEX = /^[\p{L}][\p{L}\s']*$/u;
 
 const fullNameSchema = z
   .string({

@@ -50,10 +50,10 @@ const patchUserStatus = async (req, res) => {
     const targetUserId = req.params.id;
     const currentUserId = req.user?.id;
 
-    if (targetUserId === currentUserId) {
+    if (String(targetUserId) === String(currentUserId)) {
       return res.status(403).json({
         error: 'Forbidden',
-        message: 'El Admin no deberia poder desactivar su cuenta'
+        message: 'Un administrador no puede cambiar el estado de su propia cuenta.'
       });
     }
 
