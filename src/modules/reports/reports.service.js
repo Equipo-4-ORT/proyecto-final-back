@@ -1,6 +1,7 @@
 const prisma = require('../../shared/database/prisma');
 const { getAdapter } = require('../ai/adapters');
 const { dayToUTCRange } = require('../activities/activities.service');
+const { createReportSheet } = require('./reports.sheet');
 const config = require('../../shared/config');
 const logger = require('../../shared/utils/logger');
 
@@ -123,6 +124,7 @@ const generateReportForDate = async (user, dateStr) => {
         message: 'Ya existe un reporte para esta fecha y fue enviado exitosamente.',
         reportId: existingReport.id,
         hasOverlaps: false,
+        xlsxUrl: existingReport.xlsxUrl || null,
       };
     }
 
@@ -130,11 +132,27 @@ const generateReportForDate = async (user, dateStr) => {
       logger.debug('Borrador encontrado; se devuelve sin llamar a la IA', {
         reportId: existingReport.id,
       });
+
+      // Reintento del Sheet: si en una generación previa la creación del Sheet
+      // falló (xlsxUrl null), se reintenta acá sin recalcular la IA ni violar el
+      // unique [userId, reportDate]. Ver SPEC-TEC §13.7.
+      let xlsxUrl = existingReport.xlsxUrl || null;
+      if (!xlsxUrl) {
+        xlsxUrl = await createReportSheet(user, existingReport, existingReport.content);
+        if (xlsxUrl) {
+          await prisma.report.update({
+            where: { id: existingReport.id },
+            data: { xlsxUrl },
+          });
+        }
+      }
+
       return {
         message: 'Borrador recuperado exitosamente.',
-        report: existingReport,
+        report: { ...existingReport, xlsxUrl },
         preview: existingReport.content,
         hasOverlaps: false,
+        xlsxUrl,
       };
     }
   }
@@ -204,11 +222,23 @@ const generateReportForDate = async (user, dateStr) => {
 
   logger.debug('Reporte generado correctamente', { reportId: savedReport.id });
 
+  // Creación del Sheet en el Drive del empleado (best-effort). Si falla, el
+  // reporte queda igual en PENDING con xlsxUrl null y se reintenta en la próxima
+  // generación de ese día. Ver SPEC-TEC §3 / RN-06.
+  const xlsxUrl = await createReportSheet(user, savedReport, aiOutput);
+  if (xlsxUrl) {
+    savedReport = await prisma.report.update({
+      where: { id: savedReport.id },
+      data: { xlsxUrl },
+    });
+  }
+
   return {
     message: 'Reporte generado exitosamente.',
     report: savedReport,
     preview: aiOutput,
     hasOverlaps: false,
+    xlsxUrl: xlsxUrl || null,
   };
 };
 
