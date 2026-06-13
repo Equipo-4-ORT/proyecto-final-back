@@ -6,11 +6,12 @@ WORKDIR /usr/src/app
 
 COPY --chown=node:node package*.json ./
 
+# Copy the Prisma schema before install so the postinstall "prisma generate" hook can find it
+COPY --chown=node:node prisma ./prisma
+
 RUN npm ci
 
 COPY --chown=node:node . .
-
-RUN npx prisma generate
 
 RUN mkdir -p logs && chown -R node:node logs
 
