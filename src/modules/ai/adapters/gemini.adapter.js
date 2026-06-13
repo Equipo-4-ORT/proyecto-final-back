@@ -14,8 +14,11 @@ const { AIParseError, AIValidationError } = require('../ai.errors');
  * que las empresas que elijan otro provider no necesiten setear esta var.
  */
 
-const REQUEST_TIMEOUT_MS = 30000; // 30 segundos
-const MAX_RETRIES = 3;
+// Presupuesto de tiempo: el worst case (REQUEST_TIMEOUT_MS * MAX_RETRIES +
+// backoff + creación del Sheet) debe caber bajo el timeout del front (120s en
+// reportsService.js). 45s * 2 ≈ 90s + Sheet ≈ 95s < 120s.
+const REQUEST_TIMEOUT_MS = 45000; // 45 segundos por intento
+const MAX_RETRIES = 2; // intentos totales (1 reintento)
 const RETRY_BASE_DELAY_MS = 300;
 
 let cachedClient = null;
@@ -72,6 +75,11 @@ class GeminiAdapter extends AIAdapter {
         generationConfig: {
           responseMimeType: 'application/json',
           temperature: 0,
+          // gemini-2.5-flash activa "thinking" por defecto, lo que agrega
+          // latencia y hacía que la respuesta superara REQUEST_TIMEOUT_MS y se
+          // abortara. Para esta tarea (extracción/resumen JSON estructurado) el
+          // razonamiento extendido no aporta, así que lo desactivamos.
+          thinkingConfig: { thinkingBudget: 0 },
         },
       },
       { timeout: REQUEST_TIMEOUT_MS },

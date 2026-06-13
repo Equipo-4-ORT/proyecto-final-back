@@ -15,7 +15,7 @@ const ActivityRowSchema = z.object({
     startTime: z.string().regex(/^\d{2}:\d{2}$/, 'Formato debe ser HH:mm'),
     endTime: z.string().regex(/^\d{2}:\d{2}$/, 'Formato debe ser HH:mm'),
     duration: z.number().int().positive('Duration debe ser positivo'),
-    source: z.enum(['calendar', 'drive', 'jira']),
+    source: z.enum(['calendar', 'drive', 'jira', 'manual']),
     app: z.string().min(1, 'App no puede estar vacío'),
     activityType: z.string().min(1, 'ActivityType no puede estar vacío'),
     title: z.string().min(1, 'Title no puede estar vacío'),
