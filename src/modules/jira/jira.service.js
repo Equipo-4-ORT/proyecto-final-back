@@ -271,7 +271,7 @@ const syncForUser = async (userId, dateStart, dateEnd) => {
                 client.getWorklogs(cloudId, accessToken, issue.key),
             ]);
             activities = activities.concat(
-                mapper.issueToActivities({ userId, issue, histories, comments, worklogs, myAccountId }, start, end),
+                mapper.issueToActivities({ userId, issue, histories, comments, worklogs, myAccountId, defaultDuration: user.defaultDuration }, start, end),
             );
         }
     } catch (err) {
