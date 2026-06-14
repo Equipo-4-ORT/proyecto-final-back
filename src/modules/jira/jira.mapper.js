@@ -316,7 +316,7 @@ const mapCreationToActivity = (userId, issue, myAccountId, dateStart, dateEnd) =
 const mapWorklogsToActivities = (userId, issue, worklogs, myAccountId, dateStart, dateEnd, defaultDuration) => {
     if (!Array.isArray(worklogs)) return [];
 
-    const defaultDurationSeconds = (defaultDuration || 30) * 60; // defaultDuration viene en minutos, lo convertimos a segundos
+    const defaultDurationSeconds = (defaultDuration || 8) * 3600; // defaultDuration viene en horas, lo convertimos a segundos
     return worklogs
         .filter((w) => isMine(w.author, myAccountId) && isWithinWindow(w.started, dateStart, dateEnd))
         .map((w) => {
