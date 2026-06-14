@@ -128,7 +128,6 @@ const getDriveActivitiesForDay = async (refreshToken, timeMin, timeMax) => {
         do {
             const response = await driveactivity.activity.query({
                 requestBody: {
-                    ancestorName: 'items/root',
                     filter: `time >= "${timeMin}" AND time < "${timeMax}"`,
                     consolidationStrategy: { legacy: {} },
                     pageSize: 100,
