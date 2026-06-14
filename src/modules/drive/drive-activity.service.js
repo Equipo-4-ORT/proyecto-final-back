@@ -285,20 +285,33 @@ const persistDriveActivities = async (userId, refreshToken, startTime, endTime) 
 
     const activitiesToSave = buildWorkEstimates(byFile, userId, windowDate);
 
-    // Re-sync idempotente sin congelar la duración: en lugar de saltar duplicados
-    // (que dejaba intacta la estimación del primer sync), se borran los registros
-    // del día de los archivos de esta ventana y se reinsertan recalculados. Así un
-    // segundo sync incorpora toda la actividad nueva del día sin duplicar las
-    // anteriores. El delete + el insert van en una sola transacción (atómico).
-    const externalIds = activitiesToSave.map((record) => record.externalId);
-    const [, result] = await prisma.$transaction([
-        prisma.dailyActivity.deleteMany({
-            where: { userId, source: 'drive', externalId: { in: externalIds } },
-        }),
-        prisma.dailyActivity.createMany({ data: activitiesToSave }),
-    ]);
+    // Re-sync idempotente sin congelar la duración: upsert por externalId para que
+    // un segundo sync del mismo día recalcule startTime/endTime sin cambiar el id
+    // de BD. Preservar el id es importante si en el futuro se referencian estas
+    // filas desde otras tablas o desde el frontend.
+    const results = await prisma.$transaction(
+        activitiesToSave.map((record) =>
+            prisma.dailyActivity.upsert({
+                where: {
+                    userId_source_externalId: {
+                        userId: record.userId,
+                        source: record.source,
+                        externalId: record.externalId,
+                    },
+                },
+                create: record,
+                update: {
+                    startTime:    record.startTime,
+                    endTime:      record.endTime,
+                    activityType: record.activityType,
+                    title:        record.title,
+                    metadata:     record.metadata,
+                },
+            })
+        )
+    );
 
-    return { count: result.count, message: `${result.count} actividades de Drive guardadas` };
+    return { count: results.length, message: `${results.length} actividades de Drive guardadas` };
 };
 
 // TODO (incremental): summarizeDriveActivities y enrichDriveActivitySummary todavía
