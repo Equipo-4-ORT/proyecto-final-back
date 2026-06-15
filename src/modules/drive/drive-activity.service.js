@@ -17,11 +17,14 @@ class InvalidWindowError extends Error {
     }
 }
 
-// Tipos de acción que representan trabajo activo sobre un archivo
-const RELEVANT_ACTIONS = new Set(['edit', 'create']);
+// Acciones de edición/modificación directa del contenido
+const EDIT_ACTIONS = new Set(['edit', 'create', 'rename']);
 
-// Acciones que se cuentan en el resumen por archivo
-const SUMMARY_ACTIONS = new Set(['edit', 'create', 'comment', 'permissionChange']);
+// Acciones de colaboración
+const COMMENT_ACTIONS = new Set(['comment', 'suggestion']);
+
+// Acciones de organización y permisos
+const SHARE_ACTIONS = new Set(['permissionChange', 'move', 'restore', 'delete']);
 
 // MIME types a excluir: no son archivos de trabajo sino contenedores o atajos
 const EXCLUDED_MIME_TYPES = new Set([
@@ -258,7 +261,7 @@ const persistDriveActivities = async (userId, refreshToken, startTime, endTime) 
 
     for (const activity of rawActivities) {
         const extracted = extractDriveTarget(activity);
-        if (!extracted || !RELEVANT_ACTIONS.has(extracted.actionType)) continue;
+        if (!extracted) continue;
 
         const { fileId, mimeType, title } = extracted;
         if (!fileId) continue;
@@ -350,7 +353,7 @@ const summarizeDriveActivities = (rawActivities) => {
 
     for (const activity of rawActivities) {
         const extracted = extractDriveTarget(activity);
-        if (!extracted || !SUMMARY_ACTIONS.has(extracted.actionType)) continue;
+        if (!extracted) continue;
 
         const { actionType, fileId, mimeType, title } = extracted;
         if (!fileId) continue;
@@ -368,11 +371,11 @@ const summarizeDriveActivities = (rawActivities) => {
 
         const entry = byFile.get(fileId);
 
-        if (actionType === 'edit' || actionType === 'create') {
+        if (EDIT_ACTIONS.has(actionType)) {
             entry.editCount += 1;
-        } else if (actionType === 'comment') {
+        } else if (COMMENT_ACTIONS.has(actionType)) {
             entry.commentCount += 1;
-        } else if (actionType === 'permissionChange') {
+        } else if (SHARE_ACTIONS.has(actionType)) {
             entry.shareCount += 1;
         }
     }
