@@ -69,6 +69,10 @@ const CHANGELOG_FIELD_TO_ACTIVITY_TYPE = {
     assignee: ACTIVITY_TYPE.ASSIGNMENT,
     description: ACTIVITY_TYPE.EDIT,
     summary: ACTIVITY_TYPE.EDIT,
+    Attachment: ACTIVITY_TYPE.EDIT,
+    'Start date': ACTIVITY_TYPE.EDIT,
+    duedate: ACTIVITY_TYPE.EDIT,
+    labels: ACTIVITY_TYPE.EDIT,
 };
 
 // Validación del cloudId antes de interpolarlo en URLs (defensa SSRF — A10 OWASP)

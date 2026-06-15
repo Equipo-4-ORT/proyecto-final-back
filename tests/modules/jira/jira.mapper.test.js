@@ -95,7 +95,7 @@ describe('jira.mapper', () => {
                     author: { accountId: ME },
                     created: '2026-05-10T16:00:00.000Z',
                     items: [
-                        { field: 'labels', fromString: 'x', toString: 'y' }, // no trackeado → se ignora
+                        { field: 'priority', fromString: 'Low', toString: 'High' }, // no trackeado → se ignora
                         { field: 'status', fromString: 'In Progress', toString: 'Done' },
                     ],
                 },
@@ -140,7 +140,7 @@ describe('jira.mapper', () => {
             const histories = [
                 { id: 'h1', author: { accountId: ME }, created: '2026-05-10T08:00:00.000Z', items: [{ field: 'status', fromString: 'a', toString: 'b' }] },
                 { id: 'h2', author: { accountId: OTHER }, created: '2026-05-10T10:00:00.000Z', items: [{ field: 'status', fromString: 'a', toString: 'b' }] },
-                { id: 'h3', author: { accountId: ME }, created: '2026-05-10T10:00:00.000Z', items: [{ field: 'labels', fromString: 'a', toString: 'b' }] }, // campo no trackeado
+                { id: 'h3', author: { accountId: ME }, created: '2026-05-10T10:00:00.000Z', items: [{ field: 'priority', fromString: 'a', toString: 'b' }] }, // campo no trackeado
             ];
             expect(mapper.mapChangelogToActivities('user-1', issue, histories, ME, WINDOW_START, WINDOW_END)).toEqual([]);
         });
@@ -175,6 +175,26 @@ describe('jira.mapper', () => {
             expect(result[0].endTime).toEqual(new Date('2026-05-10T14:05:00.000Z'));
             // El metadata conserva el timeSpent original reportado por Jira.
             expect(result[0].metadata.time_spent_seconds).toBe(60);
+        });
+
+        test('worklog mayor a defaultDuration → se capea a la jornada y conserva el original', () => {
+            // 4h reportadas, defaultDuration de 60 min → la actividad se recorta a 1h.
+            const worklogs = [
+                { id: 'w1', author: { accountId: ME }, started: '2026-05-10T14:00:00.000Z', timeSpentSeconds: 4 * 3600 },
+            ];
+            const result = mapper.mapWorklogsToActivities('user-1', issue, worklogs, ME, WINDOW_START, WINDOW_END, 60);
+            expect(result[0].startTime).toEqual(new Date('2026-05-10T14:00:00.000Z'));
+            expect(result[0].endTime).toEqual(new Date('2026-05-10T15:00:00.000Z'));
+            expect(result[0].metadata).toMatchObject({ time_spent_seconds: 3600, original_time_spent: 4 * 3600 });
+        });
+
+        test('defaultDuration ausente → usa el fallback de 60 minutos', () => {
+            const worklogs = [
+                { id: 'w1', author: { accountId: ME }, started: '2026-05-10T14:00:00.000Z', timeSpentSeconds: 4 * 3600 },
+            ];
+            const result = mapper.mapWorklogsToActivities('user-1', issue, worklogs, ME, WINDOW_START, WINDOW_END);
+            expect(result[0].endTime).toEqual(new Date('2026-05-10T15:00:00.000Z'));
+            expect(result[0].metadata.time_spent_seconds).toBe(3600);
         });
     });
 
@@ -312,7 +332,8 @@ describe('jira.mapper', () => {
             const worklogs = [
                 { id: 'w1', author: { accountId: ME }, started: '2026-05-10T14:00:00.000Z', timeSpentSeconds: 5400 },
             ];
-            const [activity] = mapper.mapWorklogsToActivities('u', issue, worklogs, ME, WINDOW_START, WINDOW_END);
+            // defaultDuration alto (en minutos) para que el cap no recorte y se pueda verificar el formato del título
+            const [activity] = mapper.mapWorklogsToActivities('u', issue, worklogs, ME, WINDOW_START, WINDOW_END, 120);
             expect(activity.metadata.title).toBe('Arreglar el login · 1h 30m (PROJ-42)');
         });
 

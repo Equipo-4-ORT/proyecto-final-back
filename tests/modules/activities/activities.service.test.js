@@ -6,6 +6,9 @@ jest.mock('../../../src/shared/database/prisma', () => ({
     update: jest.fn(),
     delete: jest.fn(),
   },
+  user: {
+    findUnique: jest.fn(),
+  },
 }));
 
 const {
@@ -150,6 +153,40 @@ describe('createActivity', () => {
         activityType: 'tarea',
         startTime: new Date(ACTIVITY_BASE.startTime),
         endTime: new Date(ACTIVITY_BASE.endTime),
+      }),
+    });
+    // Con endTime explícito no se consulta la preferencia del usuario.
+    expect(prisma.user.findUnique).not.toHaveBeenCalled();
+  });
+
+  test('deriva el endTime de defaultDuration (minutos) cuando no se provee', async () => {
+    prisma.user.findUnique.mockResolvedValue({ defaultDuration: 45 });
+    prisma.dailyActivity.create.mockResolvedValue(MOCK_ACTIVITY);
+
+    await createActivity('user-id-1', { activityType: 'tarea', startTime: ACTIVITY_BASE.startTime });
+
+    expect(prisma.user.findUnique).toHaveBeenCalledWith({
+      where: { id: 'user-id-1' },
+      select: { defaultDuration: true },
+    });
+    expect(prisma.dailyActivity.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        startTime: new Date(ACTIVITY_BASE.startTime),
+        // 09:00 + 45 min = 09:45
+        endTime: new Date('2026-01-15T09:45:00.000Z'),
+      }),
+    });
+  });
+
+  test('usa el fallback de 60 minutos si el usuario no tiene defaultDuration', async () => {
+    prisma.user.findUnique.mockResolvedValue(null);
+    prisma.dailyActivity.create.mockResolvedValue(MOCK_ACTIVITY);
+
+    await createActivity('user-id-1', { activityType: 'tarea', startTime: ACTIVITY_BASE.startTime });
+
+    expect(prisma.dailyActivity.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        endTime: new Date('2026-01-15T10:00:00.000Z'),
       }),
     });
   });

@@ -86,14 +86,35 @@ const listActivities = async (userId, filters = {}) => {
   });
 };
 
-const createActivity = (userId, { activityType, startTime, endTime, metadata }) => {
+// Fallback de duración (en minutos) si por algún motivo el usuario no tuviera
+// defaultDuration en la BD. La columna user.defaultDuration tiene @default(60),
+// así que en la práctica siempre hay un valor; esto es defensivo.
+const FALLBACK_DURATION_MINUTES = 60;
+
+const createActivity = async (userId, { activityType, startTime, endTime, metadata }) => {
+  const start = new Date(startTime);
+
+  // Si no vino endTime, la duración la define la preferencia del usuario
+  // (defaultDuration, en minutos). La regla de negocio vive acá, no en el front.
+  let end;
+  if (endTime) {
+    end = new Date(endTime);
+  } else {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { defaultDuration: true },
+    });
+    const durationMinutes = user?.defaultDuration ?? FALLBACK_DURATION_MINUTES;
+    end = new Date(start.getTime() + durationMinutes * 60 * 1000);
+  }
+
   return prisma.dailyActivity.create({
     data: {
       userId,
       source: 'manual',
       activityType,
-      startTime: new Date(startTime),
-      endTime: new Date(endTime),
+      startTime: start,
+      endTime: end,
       metadata: metadata ?? undefined,
     },
   });
