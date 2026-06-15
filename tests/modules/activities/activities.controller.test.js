@@ -106,11 +106,25 @@ describe('getActivities', () => {
 
 describe('postActivity', () => {
     test('responde 400 si falta algún campo requerido', async () => {
-        req.body = { activityType: 'tarea', startTime: '2026-01-15T09:00:00.000Z' };
+        req.body = { activityType: 'tarea' }; // falta startTime
 
         await postActivity(req, res);
 
         expect(res.status).toHaveBeenCalledWith(400);
+    });
+
+    test('responde 201 sin endTime: es opcional y lo deriva el service', async () => {
+        req.body = { activityType: 'tarea', startTime: '2026-01-15T09:00:00.000Z' };
+        createActivity.mockResolvedValue(MOCK_ACTIVITY);
+
+        await postActivity(req, res);
+
+        expect(res.status).toHaveBeenCalledWith(201);
+        expect(createActivity).toHaveBeenCalledWith('user-1', expect.objectContaining({
+            activityType: 'tarea',
+            startTime: '2026-01-15T09:00:00.000Z',
+            endTime: undefined,
+        }));
     });
 
     test('responde 400 si startTime es posterior o igual a endTime', async () => {
