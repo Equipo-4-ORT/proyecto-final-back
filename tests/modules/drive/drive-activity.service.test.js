@@ -9,6 +9,7 @@ const {
     buildWorkEstimates,
     summarizeDriveActivities,
     enrichDriveActivitySummary,
+    isCurrentUserActivity,
     InvalidWindowError,
     WORK_BUFFER_MS,
     MAX_WORK_DURATION_MS,
@@ -39,11 +40,20 @@ jest.mock('../../../src/shared/database/prisma', () => ({
 jest.mock('../../../src/shared/utils/logger', () => ({
     error: jest.fn(),
     warn: jest.fn(),
+    info: jest.fn(),
 }));
+
+// Actor que representa al propio empleado: la Drive Activity API lo marca con
+// knownUser.isCurrentUser. persistDriveActivities solo persiste actividades con
+// este actor (atribución RN-D02/D03). Las actividades de los tests llevan este
+// actor salvo que prueben explícitamente el descarte de terceros.
+const CURRENT_USER = { user: { knownUser: { isCurrentUser: true } } };
 
 describe('Drive Activity Service', () => {
     let mockActivityQuery;
     let mockFilesGet;
+    let mockFilesList;
+    let mockDrivesList;
 
     beforeEach(() => {
         jest.clearAllMocks();
@@ -56,8 +66,13 @@ describe('Drive Activity Service', () => {
         });
 
         mockFilesGet = jest.fn();
+        // Por defecto, sin unidades compartidas ni archivos "Compartido conmigo":
+        // buildDriveScopes resuelve solo [{ ancestorName: 'items/root' }].
+        mockFilesList = jest.fn().mockResolvedValue({ data: { files: [] } });
+        mockDrivesList = jest.fn().mockResolvedValue({ data: { drives: [] } });
         google.drive.mockReturnValue({
-            files: { get: mockFilesGet },
+            files: { get: mockFilesGet, list: mockFilesList },
+            drives: { list: mockDrivesList },
         });
     });
 
@@ -149,12 +164,18 @@ describe('Drive Activity Service', () => {
             );
         });
 
-        test('Lanza error si la API falla', async () => {
+        test('Si un scope falla, se omite y se loguea (recolección parcial, no aborta)', async () => {
+            // RN-D05: el fallo de la consulta de un scope no aborta la recolección.
+            // Con un solo scope (Mi unidad) que falla, devuelve [] y loguea el skip.
             mockActivityQuery.mockRejectedValue(new Error('Google API caída'));
 
-            await expect(
-                getDriveActivitiesForDay('token', '2026-05-26T00:00:00Z', '2026-05-27T00:00:00Z')
-            ).rejects.toThrow('Error al obtener actividades de Drive');
+            const result = await getDriveActivitiesForDay('token', '2026-05-26T00:00:00Z', '2026-05-27T00:00:00Z');
+
+            expect(result).toEqual([]);
+            expect(logger.warn).toHaveBeenCalledWith(
+                'Scope de Drive omitido por error en la consulta',
+                expect.objectContaining({ message: 'Google API caída' }),
+            );
         });
     });
 
@@ -356,6 +377,7 @@ describe('Drive Activity Service', () => {
             const activities = ['rename', 'move', 'delete', 'comment'].map(type => ({
                 primaryActionDetail: { [type]: {} },
                 targets: [{ driveItem: { name: 'items/doc1', title: 'Doc', mimeType: 'application/vnd.google-apps.document' } }],
+                actors: [CURRENT_USER],
                 timestamp: '2026-05-26T10:00:00Z',
             }));
             mockActivityQuery.mockResolvedValue({ data: { activities } });
@@ -374,6 +396,7 @@ describe('Drive Activity Service', () => {
             ].map(driveItem => ({
                 primaryActionDetail: { edit: {} },
                 targets: [{ driveItem }],
+                actors: [CURRENT_USER],
                 timestamp: '2026-05-26T10:00:00Z',
             }));
             mockActivityQuery.mockResolvedValue({ data: { activities: excluded } });
@@ -394,6 +417,7 @@ describe('Drive Activity Service', () => {
             const activity = {
                 primaryActionDetail: { edit: {} },
                 targets: [{ driveItem: { name: 'items/doc1', title: 'Mi Documento', mimeType: 'application/vnd.google-apps.document' } }],
+                actors: [CURRENT_USER],
                 timestamp: '2026-05-26T10:00:00Z',
             };
             mockActivityQuery.mockResolvedValue({ data: { activities: [activity] } });
@@ -412,6 +436,7 @@ describe('Drive Activity Service', () => {
             const activity = {
                 primaryActionDetail: { create: { new: {} } },
                 targets: [{ driveItem: { name: 'items/sheet1', title: 'Nueva Planilla', mimeType: 'application/vnd.google-apps.spreadsheet' } }],
+                actors: [CURRENT_USER],
                 timestamp: '2026-05-26T14:00:00Z',
             };
             mockActivityQuery.mockResolvedValue({ data: { activities: [activity] } });
@@ -426,6 +451,7 @@ describe('Drive Activity Service', () => {
             const activity = {
                 primaryActionDetail: { edit: {} },
                 targets: [{ driveItem: { name: 'items/pdf1', title: 'contrato.pdf', mimeType: 'application/pdf' } }],
+                actors: [CURRENT_USER],
                 timestamp: '2026-05-26T10:00:00Z',
             };
             mockActivityQuery.mockResolvedValue({ data: { activities: [activity] } });
@@ -438,8 +464,8 @@ describe('Drive Activity Service', () => {
             mockActivityQuery.mockResolvedValue({
                 data: {
                     activities: [
-                        { primaryActionDetail: { edit: {} }, targets: [{ driveItem: { name: 'items/doc1', title: 'Doc', mimeType: 'application/vnd.google-apps.document' } }], timestamp: '2026-05-26T10:00:00Z' },
-                        { primaryActionDetail: { edit: {} }, targets: [{ driveItem: { name: 'items/sheet1', title: 'Sheet', mimeType: 'application/vnd.google-apps.spreadsheet' } }], timestamp: '2026-05-26T11:00:00Z' },
+                        { primaryActionDetail: { edit: {} }, targets: [{ driveItem: { name: 'items/doc1', title: 'Doc', mimeType: 'application/vnd.google-apps.document' } }], actors: [CURRENT_USER], timestamp: '2026-05-26T10:00:00Z' },
+                        { primaryActionDetail: { edit: {} }, targets: [{ driveItem: { name: 'items/sheet1', title: 'Sheet', mimeType: 'application/vnd.google-apps.spreadsheet' } }], actors: [CURRENT_USER], timestamp: '2026-05-26T11:00:00Z' },
                     ],
                 },
             });
@@ -456,9 +482,9 @@ describe('Drive Activity Service', () => {
             mockActivityQuery.mockResolvedValue({
                 data: {
                     activities: [
-                        { primaryActionDetail: { edit: {} }, targets: [{ driveItem: { name: 'items/doc1', title: 'Doc', mimeType: 'application/vnd.google-apps.document' } }], timestamp: '2026-05-26T10:00:00Z' },
-                        { primaryActionDetail: { edit: {} }, targets: [{ driveItem: { name: 'items/doc1', title: 'Doc', mimeType: 'application/vnd.google-apps.document' } }], timestamp: '2026-05-26T10:15:00Z' },
-                        { primaryActionDetail: { edit: {} }, targets: [{ driveItem: { name: 'items/doc1', title: 'Doc', mimeType: 'application/vnd.google-apps.document' } }], timestamp: '2026-05-26T10:45:00Z' },
+                        { primaryActionDetail: { edit: {} }, targets: [{ driveItem: { name: 'items/doc1', title: 'Doc', mimeType: 'application/vnd.google-apps.document' } }], actors: [CURRENT_USER], timestamp: '2026-05-26T10:00:00Z' },
+                        { primaryActionDetail: { edit: {} }, targets: [{ driveItem: { name: 'items/doc1', title: 'Doc', mimeType: 'application/vnd.google-apps.document' } }], actors: [CURRENT_USER], timestamp: '2026-05-26T10:15:00Z' },
+                        { primaryActionDetail: { edit: {} }, targets: [{ driveItem: { name: 'items/doc1', title: 'Doc', mimeType: 'application/vnd.google-apps.document' } }], actors: [CURRENT_USER], timestamp: '2026-05-26T10:45:00Z' },
                     ],
                 },
             });
@@ -474,9 +500,9 @@ describe('Drive Activity Service', () => {
             mockActivityQuery.mockResolvedValue({
                 data: {
                     activities: [
-                        { primaryActionDetail: { edit: {} }, targets: [{ driveItem: { name: 'items/doc1', title: 'Doc', mimeType: 'application/vnd.google-apps.document' } }], timestamp: t1 },
-                        { primaryActionDetail: { edit: {} }, targets: [{ driveItem: { name: 'items/doc1', title: 'Doc', mimeType: 'application/vnd.google-apps.document' } }], timestamp: '2026-05-26T10:20:00.000Z' },
-                        { primaryActionDetail: { edit: {} }, targets: [{ driveItem: { name: 'items/doc1', title: 'Doc', mimeType: 'application/vnd.google-apps.document' } }], timestamp: t3 },
+                        { primaryActionDetail: { edit: {} }, targets: [{ driveItem: { name: 'items/doc1', title: 'Doc', mimeType: 'application/vnd.google-apps.document' } }], actors: [CURRENT_USER], timestamp: t1 },
+                        { primaryActionDetail: { edit: {} }, targets: [{ driveItem: { name: 'items/doc1', title: 'Doc', mimeType: 'application/vnd.google-apps.document' } }], actors: [CURRENT_USER], timestamp: '2026-05-26T10:20:00.000Z' },
+                        { primaryActionDetail: { edit: {} }, targets: [{ driveItem: { name: 'items/doc1', title: 'Doc', mimeType: 'application/vnd.google-apps.document' } }], actors: [CURRENT_USER], timestamp: t3 },
                     ],
                 },
             });
@@ -496,6 +522,7 @@ describe('Drive Activity Service', () => {
                     activities: [{
                         primaryActionDetail: { edit: {} },
                         targets: [{ driveItem: { name: 'items/doc1', title: 'Doc', mimeType: 'application/vnd.google-apps.document' } }],
+                        actors: [CURRENT_USER],
                         timeRange: { startTime: t1, endTime: '2026-05-26T14:00:00.000Z' },
                     }],
                 },
@@ -516,6 +543,7 @@ describe('Drive Activity Service', () => {
                     activities: [{
                         primaryActionDetail: { edit: {} },
                         targets: [{ driveItem: { name: 'items/doc1', title: 'Doc', mimeType: 'application/vnd.google-apps.document' } }],
+                        actors: [CURRENT_USER],
                         timeRange: { startTime: rangeStart, endTime: rangeEnd },
                     }],
                 },
@@ -532,6 +560,7 @@ describe('Drive Activity Service', () => {
             const activity = {
                 primaryActionDetail: { edit: {} },
                 targets: [{ driveItem: { name: 'items/doc1', title: 'Doc', mimeType: 'application/vnd.google-apps.document' } }],
+                actors: [CURRENT_USER],
                 timestamp: '2026-05-26T10:00:00Z',
             };
             mockActivityQuery.mockResolvedValue({ data: { activities: [activity] } });
@@ -547,6 +576,7 @@ describe('Drive Activity Service', () => {
                 data: { activities: [{
                     primaryActionDetail: { edit: {} },
                     targets: [{ driveItem: { name: 'items/doc1', title: 'Doc', mimeType: 'application/vnd.google-apps.document' } }],
+                    actors: [CURRENT_USER],
                     timestamp: '2026-05-26T10:00:00Z',
                 }] },
             });
@@ -574,6 +604,7 @@ describe('Drive Activity Service', () => {
             const evilActivity = {
                 primaryActionDetail: { edit: {} },
                 targets: [{ driveItem: { name: 'items/doc1', title: `Doc\x00\x07umento${'C'.repeat(5000)}`, mimeType: 'application/vnd.google-apps.document' } }],
+                actors: [CURRENT_USER],
                 timestamp: '2026-05-26T10:00:00Z',
             };
             mockActivityQuery.mockResolvedValue({ data: { activities: [evilActivity] } });
@@ -753,6 +784,7 @@ describe('Drive Activity Service', () => {
         const makeActivity = (actionType, fileId, title, mimeType = 'application/vnd.google-apps.document', ts = '2026-05-26T10:00:00.000Z') => ({
             primaryActionDetail: { [actionType]: {} },
             targets: [{ driveItem: { name: `items/${fileId}`, title, mimeType } }],
+            actors: [CURRENT_USER],
             timestamp: ts,
         });
 
@@ -859,6 +891,7 @@ describe('Drive Activity Service', () => {
                         activities: [{
                             primaryActionDetail: { edit: {} },
                             targets: [{ driveItem: { name: 'items/shared1', title: null, mimeType: 'application/vnd.google-apps.document' } }],
+                            actors: [CURRENT_USER],
                             timestamp: '2026-05-26T10:00:00.000Z',
                         }],
                     },
@@ -878,6 +911,7 @@ describe('Drive Activity Service', () => {
                         activities: [{
                             primaryActionDetail: { edit: {} },
                             targets: [{ driveItem: { name: 'items/shared2', title: 'Archivo externo', mimeType: null } }],
+                            actors: [CURRENT_USER],
                             timestamp: '2026-05-26T10:00:00.000Z',
                         }],
                     },
@@ -889,15 +923,15 @@ describe('Drive Activity Service', () => {
                 expect(record.fileType).toBe('file');
             });
 
-            test('Actividad con múltiples actores (archivo compartido editado en conjunto): se procesa como una actividad normal', async () => {
+            test('Actividad colaborativa donde el empleado es uno de los actores: se persiste como actividad propia', async () => {
                 mockActivityQuery.mockResolvedValue({
                     data: {
                         activities: [{
                             primaryActionDetail: { edit: {} },
                             targets: [{ driveItem: { name: 'items/shared3', title: 'Colaborativo', mimeType: 'application/vnd.google-apps.document' } }],
                             actors: [
-                                { user: { knownUser: { personName: 'people/user-A' } } },
-                                { user: { knownUser: { personName: 'people/user-B' } } },
+                                CURRENT_USER,
+                                { user: { knownUser: { personName: 'people/user-B', isCurrentUser: false } } },
                             ],
                             timestamp: '2026-05-26T10:00:00.000Z',
                         }],
@@ -1014,8 +1048,8 @@ describe('Drive Activity Service', () => {
                             primaryActionDetail: { edit: {} },
                             targets: [{ driveItem: { name: 'items/doc1', title: 'Colaborativo', mimeType: 'application/vnd.google-apps.document' } }],
                             actors: [
-                                { user: { knownUser: { personName: 'people/A' } } },
-                                { user: { knownUser: { personName: 'people/B' } } },
+                                CURRENT_USER,
+                                { user: { knownUser: { personName: 'people/B', isCurrentUser: false } } },
                             ],
                             timeRange: { startTime: rangeStart, endTime: rangeEnd },
                         }],
@@ -1205,6 +1239,145 @@ describe('Drive Activity Service', () => {
             // eslint-disable-next-line no-control-regex
             expect(result.title).not.toMatch(/[\x00-\x08\x0E-\x1F\x7F]/);
             expect(result.title.length).toBeLessThanOrEqual(200);
+        });
+    });
+
+    // ====================================================================
+    // SUITE 6: Cobertura fuera de "Mi unidad" + atribución por actor
+    //          (fix F-DRIVE-02)
+    // ====================================================================
+    describe('Cobertura fuera de Mi unidad y atribución por actor', () => {
+        const mockUserId = 'user-uuid-123';
+        const startTime  = '2026-05-26T03:00:00.000Z';
+        const endTime    = '2026-05-27T03:00:00.000Z';
+
+        // Construye una actividad con el actor del usuario actual.
+        const ownActivity = (fileId, ts = '2026-05-26T10:00:00.000Z') => ({
+            primaryActionDetail: { edit: {} },
+            targets: [{ driveItem: { name: `items/${fileId}`, title: 'Doc', mimeType: 'application/vnd.google-apps.document' } }],
+            actors: [CURRENT_USER],
+            timestamp: ts,
+        });
+
+        // Mock de la Activity API que solo devuelve `activity` en la query
+        // principal del scope indicado (ancestorName | itemName). El resto vacío.
+        const scopedActivityQuery = (matches) => ({ requestBody }) => {
+            const isMain = !requestBody.filter.includes('action_detail_case');
+            if (isMain && !requestBody.pageToken) {
+                const hit = matches.find(
+                    (m) => requestBody[m.key] === m.value,
+                );
+                if (hit) return Promise.resolve({ data: { activities: [hit.activity] } });
+            }
+            return Promise.resolve({ data: { activities: [] } });
+        };
+
+        test('CA-02: persiste actividad propia en una Unidad compartida (ancestorName)', async () => {
+            mockDrivesList.mockResolvedValue({ data: { drives: [{ id: 'driveA' }] } });
+            mockActivityQuery.mockImplementation(scopedActivityQuery([
+                { key: 'ancestorName', value: 'items/driveA', activity: ownActivity('sd-doc') },
+            ]));
+
+            const result = await persistDriveActivities(mockUserId, 'token', startTime, endTime);
+
+            expect(result.created).toBe(1);
+            const record = prisma.dailyActivity.upsert.mock.calls[0][0].create;
+            expect(record.metadata.fileId).toBe('sd-doc');
+        });
+
+        test('CA-01: persiste actividad propia sobre un documento "Compartido conmigo" (itemName)', async () => {
+            mockFilesList.mockResolvedValue({ data: { files: [{ id: 'extFile', mimeType: 'application/vnd.google-apps.document' }] } });
+            mockActivityQuery.mockImplementation(scopedActivityQuery([
+                { key: 'itemName', value: 'items/extFile', activity: ownActivity('extFile') },
+            ]));
+
+            const result = await persistDriveActivities(mockUserId, 'token', startTime, endTime);
+
+            expect(result.created).toBe(1);
+            expect(prisma.dailyActivity.upsert.mock.calls[0][0].create.metadata.fileId).toBe('extFile');
+        });
+
+        test('CA-03/CA-04: descarta actividad cuyo actor no es el usuario actual', async () => {
+            const otherUserActivity = {
+                primaryActionDetail: { edit: {} },
+                targets: [{ driveItem: { name: 'items/shared9', title: 'Ajeno', mimeType: 'application/vnd.google-apps.document' } }],
+                actors: [{ user: { knownUser: { personName: 'people/otro', isCurrentUser: false } } }],
+                timestamp: '2026-05-26T10:00:00.000Z',
+            };
+            mockActivityQuery.mockImplementation(scopedActivityQuery([
+                { key: 'ancestorName', value: 'items/root', activity: otherUserActivity },
+            ]));
+
+            const result = await persistDriveActivities(mockUserId, 'token', startTime, endTime);
+
+            expect(result.created).toBe(0);
+            expect(prisma.dailyActivity.upsert).not.toHaveBeenCalled();
+        });
+
+        test('CA-05: mismo archivo+acción+instante en Mi unidad y Unidad compartida → un solo registro (dedup entre scopes)', async () => {
+            const dup = ownActivity('dup-doc', '2026-05-26T10:00:00.000Z');
+            mockDrivesList.mockResolvedValue({ data: { drives: [{ id: 'driveA' }] } });
+            mockActivityQuery.mockImplementation(scopedActivityQuery([
+                { key: 'ancestorName', value: 'items/root', activity: dup },
+                { key: 'ancestorName', value: 'items/driveA', activity: dup },
+            ]));
+
+            const result = await persistDriveActivities(mockUserId, 'token', startTime, endTime);
+
+            expect(result.created).toBe(1);
+            expect(prisma.dailyActivity.upsert).toHaveBeenCalledTimes(1);
+        });
+
+        test('CA-06: un scope que falla no aborta; los demás se persisten', async () => {
+            mockDrivesList.mockResolvedValue({ data: { drives: [{ id: 'driveBroken' }] } });
+            mockActivityQuery.mockImplementation(({ requestBody }) => {
+                // El scope de la unidad compartida falla; Mi unidad responde OK.
+                if (requestBody.ancestorName === 'items/driveBroken') {
+                    return Promise.reject(new Error('scope caído'));
+                }
+                const isMain = !requestBody.filter.includes('action_detail_case');
+                if (isMain && requestBody.ancestorName === 'items/root') {
+                    return Promise.resolve({ data: { activities: [ownActivity('mydoc')] } });
+                }
+                return Promise.resolve({ data: { activities: [] } });
+            });
+
+            const result = await persistDriveActivities(mockUserId, 'token', startTime, endTime);
+
+            expect(result.created).toBe(1);
+            expect(prisma.dailyActivity.upsert.mock.calls[0][0].create.metadata.fileId).toBe('mydoc');
+            expect(logger.warn).toHaveBeenCalledWith(
+                'Scope de Drive omitido por error en la consulta',
+                expect.objectContaining({ message: 'scope caído' }),
+            );
+        });
+
+        test('CA-08: sin unidades ni compartidos → solo se consulta items/root', async () => {
+            mockActivityQuery.mockResolvedValue({ data: { activities: [] } });
+
+            await persistDriveActivities(mockUserId, 'token', startTime, endTime);
+
+            // Todas las queries de actividad apuntan a items/root (un solo scope).
+            const scopesConsultados = new Set(
+                mockActivityQuery.mock.calls.map((c) => c[0].requestBody.ancestorName),
+            );
+            expect([...scopesConsultados]).toEqual(['items/root']);
+        });
+
+        describe('isCurrentUserActivity', () => {
+            test('true cuando algún actor es el usuario actual', () => {
+                expect(isCurrentUserActivity({ actors: [CURRENT_USER] })).toBe(true);
+                expect(isCurrentUserActivity({
+                    actors: [{ user: { knownUser: { isCurrentUser: false } } }, CURRENT_USER],
+                })).toBe(true);
+            });
+
+            test('false para otros usuarios, sistema, anónimos o sin actor', () => {
+                expect(isCurrentUserActivity({ actors: [{ user: { knownUser: { isCurrentUser: false } } }] })).toBe(false);
+                expect(isCurrentUserActivity({ actors: [{ system: {} }] })).toBe(false);
+                expect(isCurrentUserActivity({ actors: [] })).toBe(false);
+                expect(isCurrentUserActivity({})).toBe(false);
+            });
         });
     });
 });

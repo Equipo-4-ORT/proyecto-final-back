@@ -4,6 +4,7 @@ const prisma = require('../../shared/database/prisma');
 const logger = require('../../shared/utils/logger');
 const { sanitizeText, MAX_TITLE_CHARS } = require('../../shared/utils/sanitize');
 const { mapWithConcurrency } = require('../../shared/utils/concurrency');
+const { buildDriveScopes } = require('./drive-scope.service');
 
 /**
  * Error tipado para una ventana [startTime, endTime) inválida (fechas no
@@ -76,6 +77,25 @@ const ACTION_LABELS = {
 // Tope de llamadas simultáneas a la Drive API al enriquecer el resumen. Evita
 // gatillar rate limits (userRateLimitExceeded) en días con muchos archivos.
 const ENRICH_CONCURRENCY = 10;
+
+// Tope de scopes (Mi unidad + cada unidad compartida + cada archivo "Compartido
+// conmigo") consultados en paralelo contra la Activity API. Acota la
+// concurrencia anidada (cada scope dispara 1 + N queries) para no gatillar
+// rate limits.
+const SCOPE_CONCURRENCY = 5;
+
+// Tipos de acción que se consultan de forma dedicada además de la query
+// principal: la consolidación legacy de la principal devuelve solo la acción
+// primaria por archivo; estas recuperan las acciones suprimidas.
+const ACTION_FILTERS = [
+    'EDIT',
+    'CREATE',
+    'RENAME',
+    'COMMENT',
+    'PERMISSION_CHANGE',
+    'MOVE',
+    'DELETE',
+];
 
 // Estimación de duración de trabajo por archivo:
 // se suma a la última acción para dar un buffer de "cierre de pestaña".
@@ -159,12 +179,100 @@ const queryDriveActivityPaginated = async (driveactivity, requestBody) => {
 };
 
 /**
- * Consulta la Drive Activity API para el rango de tiempo dado.
+ * Clave estable de una actividad cruda para deduplicar entre scopes:
+ * archivo + tipo de acción + instante del evento. Evita que un archivo que
+ * aparece en más de un scope (p. ej. en una unidad compartida y en "Compartido
+ * conmigo") infle la duración al acumularse dos veces.
+ */
+const activityKey = (activity) => {
+    const actionType = Object.keys(activity.primaryActionDetail || {})[0];
+    const fileId = activity.targets?.[0]?.driveItem?.name
+        ?? activity.targets?.[0]?.fileComment?.parent?.name;
+    const instant = activity.timeRange?.startTime ?? activity.timestamp ?? '';
+    return `${fileId}__${actionType}__${instant}`;
+};
+
+/**
+ * Indica si una actividad fue realizada por el usuario autenticado. La Drive
+ * Activity API marca al actor propio con `knownUser.isCurrentUser`. Las
+ * actividades de otros colaboradores, del sistema o anónimas se descartan: no
+ * son trabajo atribuible al empleado. Aplica a TODAS las ubicaciones, incluida
+ * "Mi unidad".
  *
- * Lanza una query principal (consolidación legacy, que devuelve solo la acción
- * primaria por archivo) más una query dedicada por cada tipo de acción, para
- * recuperar las acciones que la consolidación suprime. Los resultados se unen
- * deduplicando por fileId+actionType.
+ * @param {object} activity - DriveActivity cruda de la API
+ * @returns {boolean}
+ */
+const isCurrentUserActivity = (activity) =>
+    Array.isArray(activity?.actors)
+    && activity.actors.some((a) => a?.user?.knownUser?.isCurrentUser === true);
+
+/**
+ * Ejecuta, para un scope dado (`{ancestorName}` o `{itemName}`), la query
+ * principal (consolidación legacy, solo la acción primaria por archivo) más una
+ * query dedicada por cada tipo de acción, uniendo y deduplicando por
+ * fileId+actionType dentro del scope.
+ *
+ * OJO (rate limit): dispara 1 + N queries en paralelo por scope (hoy 8).
+ *
+ * @param {object} driveactivity - Cliente google.driveactivity v2
+ * @param {{ancestorName?: string, itemName?: string}} scope
+ * @param {string} timeFilter - Filtro de tiempo ya armado
+ * @returns {Promise<object[]>}
+ */
+const runActivityQueriesForScope = async (driveactivity, scope, timeFilter) => {
+    const [mainActivities, ...perActionResults] = await Promise.all([
+        queryDriveActivityPaginated(driveactivity, {
+            ...scope,
+            filter: timeFilter,
+            consolidationStrategy: { legacy: {} },
+            pageSize: 100,
+        }),
+        ...ACTION_FILTERS.map((action) =>
+            queryDriveActivityPaginated(driveactivity, {
+                ...scope,
+                filter: `${timeFilter} AND detail.action_detail_case:${action}`,
+                consolidationStrategy: { legacy: {} },
+                pageSize: 100,
+            })
+        ),
+    ]);
+
+    // Claves fileId+actionType ya presentes en la query principal.
+    const mainKeys = new Set(
+        mainActivities.map((a) => {
+            const actionType = Object.keys(a.primaryActionDetail || {})[0];
+            const fileId = a.targets?.[0]?.driveItem?.name;
+            return `${fileId}__${actionType}`;
+        }).filter((k) => !k.startsWith('undefined'))
+    );
+
+    // Agregar solo los que la query principal no trajo para ese fileId+actionType.
+    const extraActivities = perActionResults.flat().filter((a) => {
+        const actionType = Object.keys(a.primaryActionDetail || {})[0];
+        const fileId = a.targets?.[0]?.driveItem?.name;
+        if (!fileId || !actionType) return false;
+        return !mainKeys.has(`${fileId}__${actionType}`);
+    });
+
+    return [...mainActivities, ...extraActivities];
+};
+
+/**
+ * Consulta la Drive Activity API para el rango de tiempo dado, cubriendo las
+ * tres ubicaciones donde el empleado puede haber trabajado:
+ *   - "Mi unidad"          → ancestorName items/root
+ *   - Unidades compartidas → ancestorName items/{driveId} (una por unidad)
+ *   - "Compartido conmigo" → itemName items/{fileId} (uno por archivo)
+ *
+ * Sin esto, la API cae en su default (items/root) y solo trae "Mi unidad",
+ * perdiendo la actividad sobre documentos de otras personas u otras ubicaciones.
+ *
+ * Los scopes (armados por `buildDriveScopes`) se consultan con concurrencia
+ * acotada; un scope que falla se omite (recolección parcial) y no aborta al
+ * resto. Los resultados se unen y deduplican globalmente por archivo+acción+instante.
+ *
+ * NOTA: NO filtra por actor. La atribución al empleado (`isCurrentUserActivity`)
+ * se aplica en `persistDriveActivities`, que es lo que se persiste.
  *
  * @param {string} refreshToken - Refresh token del usuario (ya descifrado)
  * @param {string} timeMin      - Inicio del rango en ISO 8601 (UTC)
@@ -177,57 +285,33 @@ const getDriveActivitiesForDay = async (refreshToken, timeMin, timeMax) => {
         const driveactivity = google.driveactivity({ version: 'v2', auth });
         const timeFilter = `time >= "${timeMin}" AND time < "${timeMax}"`;
 
-        // Una query por cada tipo de acción relevante con consolidación legacy.
-        // La query principal devuelve solo la acción "primaria" por archivo;
-        // las queries dedicadas recuperan las acciones que quedaron suprimidas.
-        //
-        // OJO (rate limit): esto dispara 1 + N queries en paralelo (hoy 8). En días
-        // con mucha actividad puede gatillar userRateLimitExceeded. Si ocurre, acotar
-        // la concurrencia de estas queries (como hace ENRICH_CONCURRENCY en el enrich)
-        // en lugar de lanzarlas todas con Promise.all.
-        const ACTION_FILTERS = [
-            'EDIT',
-            'CREATE',
-            'RENAME',
-            'COMMENT',
-            'PERMISSION_CHANGE',
-            'MOVE',
-            'DELETE',
-        ];
+        const scopes = await buildDriveScopes(refreshToken);
 
-        const [mainActivities, ...perActionResults] = await Promise.all([
-            queryDriveActivityPaginated(driveactivity, {
-                filter: timeFilter,
-                consolidationStrategy: { legacy: {} },
-                pageSize: 100,
-            }),
-            ...ACTION_FILTERS.map(action =>
-                queryDriveActivityPaginated(driveactivity, {
-                    filter: `${timeFilter} AND detail.action_detail_case:${action}`,
-                    consolidationStrategy: { legacy: {} },
-                    pageSize: 100,
-                })
-            ),
-        ]);
-
-        // Claves fileId+actionType ya presentes en la query principal.
-        const mainKeys = new Set(
-            mainActivities.map(a => {
-                const actionType = Object.keys(a.primaryActionDetail || {})[0];
-                const fileId = a.targets?.[0]?.driveItem?.name;
-                return `${fileId}__${actionType}`;
-            }).filter(k => !k.startsWith('undefined'))
-        );
-
-        // Agregar solo los que la query principal no trajo para ese fileId+actionType.
-        const extraActivities = perActionResults.flat().filter(a => {
-            const actionType = Object.keys(a.primaryActionDetail || {})[0];
-            const fileId = a.targets?.[0]?.driveItem?.name;
-            if (!fileId || !actionType) return false;
-            return !mainKeys.has(`${fileId}__${actionType}`);
+        const perScope = await mapWithConcurrency(scopes, SCOPE_CONCURRENCY, async (scope) => {
+            try {
+                return await runActivityQueriesForScope(driveactivity, scope, timeFilter);
+            } catch (error) {
+                // RN-D05: un scope que falla se omite; la recolección continúa.
+                logger.warn('Scope de Drive omitido por error en la consulta', {
+                    scope,
+                    message: error.message,
+                    code: error.code,
+                });
+                return [];
+            }
         });
 
-        return [...mainActivities, ...extraActivities];
+        // Unir todos los scopes y deduplicar (un archivo puede aparecer en más de uno).
+        const seen = new Set();
+        const merged = [];
+        for (const activity of perScope.flat()) {
+            const key = activityKey(activity);
+            if (seen.has(key)) continue;
+            seen.add(key);
+            merged.push(activity);
+        }
+
+        return merged;
     } catch (error) {
         logger.error('Error al obtener actividades de Drive', { message: error.message, code: error.code });
         throw new Error('Error al obtener actividades de Drive', { cause: error });
@@ -383,11 +467,20 @@ const persistDriveActivities = async (userId, refreshToken, startTime, endTime) 
 
     const rawActivities = await getDriveActivitiesForDay(refreshToken, timeMin, timeMax);
 
+    // Atribución (RN-D02/D03): solo se persiste lo que hizo el propio empleado.
+    // Las acciones de otros colaboradores sobre documentos compartidos, del
+    // sistema o anónimas se descartan. Aplica a todas las ubicaciones.
+    const ownActivities = rawActivities.filter(isCurrentUserActivity);
+    const discarded = rawActivities.length - ownActivities.length;
+    if (discarded > 0) {
+        logger.info?.('Actividades de Drive descartadas por actor ajeno', { userId, discarded });
+    }
+
     // Acumular timestamps por archivo+acción — cada tipo de acción sobre un
     // archivo genera un registro separado en el timeline.
     const byFile = new Map();
 
-    for (const activity of rawActivities) {
+    for (const activity of ownActivities) {
         const extracted = extractDriveTarget(activity);
         if (!extracted) continue;
 
@@ -603,6 +696,7 @@ module.exports = {
     buildWorkEstimates,
     summarizeDriveActivities,
     enrichDriveActivitySummary,
+    isCurrentUserActivity,
     InvalidWindowError,
     WORK_BUFFER_MS,
     MAX_WORK_DURATION_MS,
