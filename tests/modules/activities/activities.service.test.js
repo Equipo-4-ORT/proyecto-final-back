@@ -169,7 +169,7 @@ describe('createActivity', () => {
     });
   });
 
-  test('usa el fallback de 30 minutos si el usuario no tiene defaultDuration', async () => {
+  test('usa el fallback de 60 minutos si el usuario no tiene defaultDuration', async () => {
     prisma.user.findUnique.mockResolvedValue(null);
     prisma.dailyActivity.create.mockResolvedValue(MOCK_ACTIVITY);
 
@@ -177,7 +177,7 @@ describe('createActivity', () => {
 
     expect(prisma.dailyActivity.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
-        endTime: new Date('2026-01-15T09:30:00.000Z'),
+        endTime: new Date('2026-01-15T10:00:00.000Z'),
       }),
     });
   });

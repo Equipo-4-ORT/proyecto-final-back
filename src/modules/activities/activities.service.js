@@ -80,9 +80,9 @@ const listActivities = async (userId, filters = {}) => {
 };
 
 // Fallback de duración (en minutos) si por algún motivo el usuario no tuviera
-// defaultDuration en la BD. La columna user.defaultDuration tiene @default(30),
+// defaultDuration en la BD. La columna user.defaultDuration tiene @default(60),
 // así que en la práctica siempre hay un valor; esto es defensivo.
-const FALLBACK_DURATION_MINUTES = 30;
+const FALLBACK_DURATION_MINUTES = 60;
 
 const createActivity = async (userId, { activityType, startTime, endTime, metadata }) => {
   const start = new Date(startTime);
