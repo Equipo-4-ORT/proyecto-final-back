@@ -18,7 +18,7 @@ const requireActiveUser = async (req, res, next) => {
   try {
     const user = await prisma.user.findUnique({
       where: { id: req.user.id },
-      select: { id: true, email: true, fullName: true, role: true, status: true, defaultDuration: true },
+      select: { id: true, email: true, fullName: true, role: true, status: true },
     });
 
     if (!user) {
