@@ -129,6 +129,47 @@ const extractDriveTarget = (activity) => {
 };
 
 /**
+ * Devuelve los IDs de todos los Shared Drives a los que tiene acceso el usuario.
+ */
+const getSharedDriveIds = async (auth) => {
+    const drive = google.drive({ version: 'v3', auth });
+    const ids = [];
+    let pageToken = null;
+    do {
+        const res = await drive.drives.list({
+            pageSize: 100,
+            fields: 'nextPageToken, drives(id)',
+            ...(pageToken && { pageToken }),
+        });
+        ids.push(...(res.data.drives || []).map(d => d.id));
+        pageToken = res.data.nextPageToken || null;
+    } while (pageToken);
+    return ids;
+};
+
+/**
+ * Devuelve los IDs de archivos compartidos con el usuario modificados en el rango dado.
+ */
+const getSharedWithMeFileIds = async (auth, timeMin, timeMax) => {
+    const drive = google.drive({ version: 'v3', auth });
+    const ids = [];
+    let pageToken = null;
+    do {
+        const res = await drive.files.list({
+            q: `sharedWithMe=true and modifiedTime >= "${timeMin}" and modifiedTime < "${timeMax}" and trashed=false`,
+            fields: 'nextPageToken, files(id)',
+            pageSize: 100,
+            supportsAllDrives: true,
+            includeItemsFromAllDrives: true,
+            ...(pageToken && { pageToken }),
+        });
+        ids.push(...(res.data.files || []).map(f => f.id));
+        pageToken = res.data.nextPageToken || null;
+    } while (pageToken);
+    return ids;
+};
+
+/**
  * Ejecuta una query paginada contra la Drive Activity API y devuelve todos
  * los resultados. Usado internamente por getDriveActivitiesForDay.
  */
@@ -177,57 +218,130 @@ const getDriveActivitiesForDay = async (refreshToken, timeMin, timeMax) => {
         const driveactivity = google.driveactivity({ version: 'v2', auth });
         const timeFilter = `time >= "${timeMin}" AND time < "${timeMax}"`;
 
-        // Una query por cada tipo de acción relevante con consolidación legacy.
-        // La query principal devuelve solo la acción "primaria" por archivo;
-        // las queries dedicadas recuperan las acciones que quedaron suprimidas.
-        //
-        // OJO (rate limit): esto dispara 1 + N queries en paralelo (hoy 8). En días
-        // con mucha actividad puede gatillar userRateLimitExceeded. Si ocurre, acotar
-        // la concurrencia de estas queries (como hace ENRICH_CONCURRENCY en el enrich)
-        // en lugar de lanzarlas todas con Promise.all.
-        const ACTION_FILTERS = [
-            'EDIT',
-            'CREATE',
-            'RENAME',
-            'COMMENT',
-            'PERMISSION_CHANGE',
-            'MOVE',
-            'DELETE',
-        ];
+        // Acciones no-edit: se usan queries con consolidación legacy para recuperar
+        // las acciones suprimidas por la query principal.
+        const NON_EDIT_ACTION_FILTERS = ['CREATE', 'RENAME', 'COMMENT', 'PERMISSION_CHANGE', 'MOVE', 'DELETE'];
 
-        const [mainActivities, ...perActionResults] = await Promise.all([
+        // Obtener shared drives y archivos compartidos en paralelo (best-effort).
+        const [sharedDriveIds, sharedFileIds] = await Promise.all([
+            getSharedDriveIds(auth).catch(err => {
+                logger.warn('No se pudieron obtener shared drives', { error: err.message });
+                return [];
+            }),
+            getSharedWithMeFileIds(auth, timeMin, timeMax).catch(err => {
+                logger.warn('No se pudieron obtener archivos compartidos', { error: err.message });
+                return [];
+            }),
+        ]);
+
+        // Queries en paralelo:
+        // [0]     main legacy (Mi unidad, acción primaria por archivo)
+        // [1..N]  per non-edit action legacy (recupera acciones suprimidas)
+        // [N+1]   edit none (eventos de edición granulares para cálculo de sesión)
+        // [N+2..] shared drives (ancestor query, legacy)
+        // [...]   shared files (itemName query, none — cubre edits granulares también)
+        const allResults = await Promise.all([
             queryDriveActivityPaginated(driveactivity, {
                 filter: timeFilter,
                 consolidationStrategy: { legacy: {} },
                 pageSize: 100,
             }),
-            ...ACTION_FILTERS.map(action =>
+            ...NON_EDIT_ACTION_FILTERS.map(action =>
                 queryDriveActivityPaginated(driveactivity, {
                     filter: `${timeFilter} AND detail.action_detail_case:${action}`,
                     consolidationStrategy: { legacy: {} },
                     pageSize: 100,
                 })
             ),
+            // Edit con none consolidation para obtener eventos individuales de autosave.
+            // Permite calcular la duración real de cada sesión de edición.
+            queryDriveActivityPaginated(driveactivity, {
+                filter: `${timeFilter} AND detail.action_detail_case:EDIT`,
+                consolidationStrategy: { none: {} },
+                pageSize: 100,
+            }),
+            ...sharedDriveIds.map(driveId =>
+                queryDriveActivityPaginated(driveactivity, {
+                    ancestorName: `drives/${driveId}`,
+                    filter: timeFilter,
+                    consolidationStrategy: { legacy: {} },
+                    pageSize: 100,
+                }).catch(() => [])
+            ),
+            ...sharedFileIds.map(fileId =>
+                queryDriveActivityPaginated(driveactivity, {
+                    itemName: `items/${fileId}`,
+                    filter: timeFilter,
+                    consolidationStrategy: { none: {} },
+                    pageSize: 100,
+                }).catch(() => [])
+            ),
         ]);
 
-        // Claves fileId+actionType ya presentes en la query principal.
-        const mainKeys = new Set(
-            mainActivities.map(a => {
-                const actionType = Object.keys(a.primaryActionDetail || {})[0];
-                const fileId = a.targets?.[0]?.driveItem?.name;
-                return `${fileId}__${actionType}`;
-            }).filter(k => !k.startsWith('undefined'))
+        const editNoneIdx = 1 + NON_EDIT_ACTION_FILTERS.length;
+        // none edit activities: query de Mi unidad + shared file queries
+        const sharedFileStartIdx = editNoneIdx + 1 + sharedDriveIds.length;
+        const noneEditActivities = [
+            ...allResults[editNoneIdx],
+            // shared file none queries también pueden tener edits
+            ...allResults.slice(sharedFileStartIdx).flat().filter(a =>
+                Object.keys(a.primaryActionDetail || {})[0] === 'edit'
+            ),
+        ];
+
+        // Archivos con edits en queries none: sus eventos legacy de edit se descartan
+        // para no inflar la duración mezclando el timeRange grande de legacy con los
+        // intervalos granulares de none.
+        const filesWithNoneEdits = new Set(
+            noneEditActivities
+                .map(a => a.targets?.[0]?.driveItem?.name ?? a.targets?.[0]?.fileComment?.parent?.name)
+                .filter(Boolean)
         );
 
-        // Agregar solo los que la query principal no trajo para ese fileId+actionType.
-        const extraActivities = perActionResults.flat().filter(a => {
+        // Deduplicar todos los resultados legacy (sin edits de archivos en filesWithNoneEdits).
+        const legacySeen = new Set();
+        const legacyDeduped = allResults.slice(0, sharedFileStartIdx).flat().filter(a => {
             const actionType = Object.keys(a.primaryActionDetail || {})[0];
-            const fileId = a.targets?.[0]?.driveItem?.name;
-            if (!fileId || !actionType) return false;
-            return !mainKeys.has(`${fileId}__${actionType}`);
+            const target = a.targets?.[0]?.driveItem ?? a.targets?.[0]?.fileComment?.parent;
+            const fileId = target?.name;
+            const ts = a.timeRange?.startTime ?? a.timestamp;
+            if (!fileId || !actionType || !ts) return false;
+            if (actionType === 'edit' && filesWithNoneEdits.has(fileId)) return false;
+            const key = `${fileId}__${actionType}__${ts}`;
+            if (legacySeen.has(key)) return false;
+            legacySeen.add(key);
+            return true;
         });
 
-        return [...mainActivities, ...extraActivities];
+        // Deduplicar los eventos none de edición (provienen de múltiples queries).
+        const noneSeen = new Set();
+        const noneDeduped = noneEditActivities.filter(a => {
+            const target = a.targets?.[0]?.driveItem ?? a.targets?.[0]?.fileComment?.parent;
+            const fileId = target?.name;
+            const ts = a.timeRange?.startTime ?? a.timestamp;
+            if (!fileId || !ts) return false;
+            const key = `${fileId}__edit__${ts}`;
+            if (noneSeen.has(key)) return false;
+            noneSeen.add(key);
+            return true;
+        });
+
+        // Agregar non-edit events de shared file queries (también usan none consolidation).
+        const sharedNonEditSeen = new Set([...legacySeen]);
+        const sharedNonEditDeduped = allResults.slice(sharedFileStartIdx).flat().filter(a => {
+            const actionType = Object.keys(a.primaryActionDetail || {})[0];
+            if (actionType === 'edit') return false; // ya incluidos en noneDeduped
+            const target = a.targets?.[0]?.driveItem ?? a.targets?.[0]?.fileComment?.parent;
+            const fileId = target?.name;
+            const ts = a.timeRange?.startTime ?? a.timestamp;
+            if (!fileId || !actionType || !ts) return false;
+            const key = `${fileId}__${actionType}__${ts}`;
+            if (sharedNonEditSeen.has(key)) return false;
+            sharedNonEditSeen.add(key);
+            return true;
+        });
+
+        return [...legacyDeduped, ...noneDeduped, ...sharedNonEditDeduped];
     } catch (error) {
         logger.error('Error al obtener actividades de Drive', { message: error.message, code: error.code });
         throw new Error('Error al obtener actividades de Drive', { cause: error });
@@ -294,7 +408,7 @@ const buildWorkEstimates = (byFile, userId, windowDate) => {
                     startTime,
                     endTime,
                     title,
-                    metadata: { title, fileId: data.fileId, mimeType: data.mimeType },
+                    metadata: { title: data.title, fileId: data.fileId, mimeType: data.mimeType },
                 });
             });
         } else {
@@ -335,7 +449,7 @@ const buildWorkEstimates = (byFile, userId, windowDate) => {
                     startTime,
                     endTime,
                     title,
-                    metadata: { title, fileId: data.fileId, mimeType: data.mimeType },
+                    metadata: { title: data.title, fileId: data.fileId, mimeType: data.mimeType },
                 });
             });
         }
