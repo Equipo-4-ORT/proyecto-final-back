@@ -129,15 +129,6 @@ const extractDriveTarget = (activity) => {
 };
 
 /**
- * Consulta la Drive Activity API para el rango de tiempo dado.
- * Maneja la paginación automáticamente hasta agotar los resultados.
- *
- * @param {string} refreshToken - Refresh token del usuario (ya descifrado)
- * @param {string} timeMin      - Inicio del rango en ISO 8601 (UTC)
- * @param {string} timeMax      - Fin del rango en ISO 8601 (UTC)
- * @returns {Promise<object[]>} - Array de DriveActivity crudos de la API
- */
-/**
  * Ejecuta una query paginada contra la Drive Activity API y devuelve todos
  * los resultados. Usado internamente por getDriveActivitiesForDay.
  */
@@ -167,6 +158,19 @@ const queryDriveActivityPaginated = async (driveactivity, requestBody) => {
     return activities;
 };
 
+/**
+ * Consulta la Drive Activity API para el rango de tiempo dado.
+ *
+ * Lanza una query principal (consolidación legacy, que devuelve solo la acción
+ * primaria por archivo) más una query dedicada por cada tipo de acción, para
+ * recuperar las acciones que la consolidación suprime. Los resultados se unen
+ * deduplicando por fileId+actionType.
+ *
+ * @param {string} refreshToken - Refresh token del usuario (ya descifrado)
+ * @param {string} timeMin      - Inicio del rango en ISO 8601 (UTC)
+ * @param {string} timeMax      - Fin del rango en ISO 8601 (UTC)
+ * @returns {Promise<object[]>} - Array de DriveActivity crudos de la API
+ */
 const getDriveActivitiesForDay = async (refreshToken, timeMin, timeMax) => {
     try {
         const auth = getAuthenticatedGoogleClient(refreshToken);
@@ -176,6 +180,11 @@ const getDriveActivitiesForDay = async (refreshToken, timeMin, timeMax) => {
         // Una query por cada tipo de acción relevante con consolidación legacy.
         // La query principal devuelve solo la acción "primaria" por archivo;
         // las queries dedicadas recuperan las acciones que quedaron suprimidas.
+        //
+        // OJO (rate limit): esto dispara 1 + N queries en paralelo (hoy 8). En días
+        // con mucha actividad puede gatillar userRateLimitExceeded. Si ocurre, acotar
+        // la concurrencia de estas queries (como hace ENRICH_CONCURRENCY en el enrich)
+        // en lugar de lanzarlas todas con Promise.all.
         const ACTION_FILTERS = [
             'EDIT',
             'CREATE',
@@ -226,21 +235,25 @@ const getDriveActivitiesForDay = async (refreshToken, timeMin, timeMax) => {
 };
 
 /**
- * Estima la duración de trabajo por archivo a partir de sus acciones crudas.
+ * Construye los registros de DailyActivity a partir de las acciones crudas
+ * agrupadas por archivo+acción, estimando la duración según el tipo de acción:
  *
- * Agrupa todos los timestamps de acciones relevantes del archivo y calcula:
- *   startTime = primera acción
- *   endTime   = min(última acción + WORK_BUFFER_MS, primera acción + MAX_WORK_DURATION_MS)
+ *   - Acciones instantáneas (INSTANT_ACTIONS: create, rename, move, delete…):
+ *     cada ocurrencia es un registro fijo de WORK_BUFFER_MS, deduplicando por
+ *     startMs (la API puede repetir el mismo evento).
+ *   - Acciones continuas (edit, comment): se agrupan en sesiones cuando el gap
+ *     entre eventos supera SESSION_GAP_MS. Cada sesión va de su primer evento a
+ *     su endTime (si la API lo provee) o al último start + WORK_BUFFER_MS, con
+ *     tope de MAX_WORK_DURATION_MS.
  *
- * Esto hace que cada archivo aparezca con una barra de duración real en el
- * timeline, en lugar de un punto sin extensión (que era el resultado cuando
- * la API devolvía un timestamp puntual para cada acción).
+ * Cuando un archivo+acción genera más de un registro, el externalId lleva sufijo
+ * `_sN` para que cada uno sea idempotente por separado.
  *
- * @param {Map<string, {fileId: string, title: string|null, mimeType: string|null, timestampsMs: number[]}>} byFile
- *   Mapa de fileId → datos acumulados del archivo.
+ * @param {Map<string, {fileId: string, actionType: string, title: string|null, mimeType: string|null, intervals: {startMs: number, endMs: number|null}[]}>} byFile
+ *   Mapa de fileId+actionType → datos acumulados.
  * @param {string} userId
  * @param {string} windowDate - Fecha de la ventana de sync en formato YYYY-MM-DD (para el externalId).
- * @returns {Array<object>} Registros listos para createMany en DailyActivity.
+ * @returns {Array<object>} Registros listos para upsert en DailyActivity.
  */
 // Gap máximo entre timestamps para considerarlos parte de la misma sesión (para edit/comment).
 const SESSION_GAP_MS = 30 * 60 * 1000; // 30 min
@@ -334,18 +347,17 @@ const buildWorkEstimates = (byFile, userId, windowDate) => {
 /**
  * Persiste las actividades de Drive del día indicado en la BD.
  *
- * En lugar de guardar un registro por acción, agrupa por archivo y estima
- * la duración de trabajo: desde la primera acción hasta la última + 5 min
- * de buffer, con un tope de 2 h. Así las actividades de Drive aparecen con
- * duración real en el timeline (en lugar de un punto de duración cero).
- *
- * Usa skipDuplicates para ser idempotente si se llama varias veces el mismo día.
+ * Agrupa las acciones crudas por archivo+acción y delega en buildWorkEstimates
+ * la estimación de duración (ver su doc: acciones instantáneas vs. sesiones).
+ * Cada registro se persiste con upsert sobre la clave única
+ * (userId, source, externalId), de modo que un re-sync del mismo día actualiza
+ * la duración en vez de duplicar.
  *
  * @param {string} userId         - ID del usuario en el sistema
  * @param {string} refreshToken   - Refresh token del usuario (ya descifrado)
  * @param {string|Date} startTime - Inicio de la ventana (ISO 8601 con TZ).
  * @param {string|Date} endTime   - Fin de la ventana, exclusivo (ISO 8601 con TZ).
- * @returns {Promise<{count: number, message: string}>}
+ * @returns {Promise<{created: number, updated: number, message: string}>}
  * @throws {InvalidWindowError} si la ventana es inválida.
  */
 const persistDriveActivities = async (userId, refreshToken, startTime, endTime) => {
@@ -370,15 +382,6 @@ const persistDriveActivities = async (userId, refreshToken, startTime, endTime) 
     const windowDate = start.toISOString().slice(0, 10);
 
     const rawActivities = await getDriveActivitiesForDay(refreshToken, timeMin, timeMax);
-
-    logger.info('Drive raw activities', {
-        total: rawActivities.length,
-        actions: rawActivities.map(a => ({
-            action: a.primaryActionDetail ? Object.keys(a.primaryActionDetail)[0] : null,
-            targetType: a.targets?.[0] ? Object.keys(a.targets[0])[0] : null,
-            title: a.targets?.[0]?.driveItem?.title,
-        })),
-    });
 
     // Acumular timestamps por archivo+acción — cada tipo de acción sobre un
     // archivo genera un registro separado en el timeline.
@@ -411,7 +414,7 @@ const persistDriveActivities = async (userId, refreshToken, startTime, endTime) 
     }
 
     if (byFile.size === 0) {
-        return { count: 0, message: 'No se encontraron actividades relevantes de Drive para guardar' };
+        return { created: 0, updated: 0, message: 'No se encontraron actividades relevantes de Drive para guardar' };
     }
 
     const activitiesToSave = buildWorkEstimates(byFile, userId, windowDate);
@@ -466,8 +469,11 @@ const persistDriveActivities = async (userId, refreshToken, startTime, endTime) 
 // Por ahora se entregan a nivel servicio + tests.
 
 /**
- * Agrupa actividades crudas de Drive por archivo y cuenta las acciones
- * relevantes (edit/create, comment, permissionChange) por cada uno.
+ * Agrupa actividades crudas de Drive por archivo y cuenta las acciones por
+ * cada uno, clasificándolas en tres contadores:
+ *   - editCount:    EDIT_ACTIONS    (edit, create, rename)
+ *   - commentCount: COMMENT_ACTIONS (comment, suggestion)
+ *   - shareCount:   SHARE_ACTIONS   (permissionChange, move, restore, delete)
  *
  * Los contadores reflejan ACTIVIDADES CONSOLIDADAS, no eventos crudos: el query
  * usa consolidationStrategy "legacy", que agrupa acciones similares sobre el
@@ -476,7 +482,6 @@ const persistDriveActivities = async (userId, refreshToken, startTime, endTime) 
  * el archivo; eso sería un cálculo aparte sobre timeRange — pendiente/backlog.)
  *
  * Las carpetas y accesos directos se excluyen del resumen.
- * Las acciones que no pertenecen a SUMMARY_ACTIONS se ignoran.
  *
  * @param {object[]} rawActivities - Array crudo devuelto por getDriveActivitiesForDay
  * @returns {Array<{
