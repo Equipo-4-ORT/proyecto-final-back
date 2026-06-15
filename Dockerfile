@@ -7,14 +7,14 @@ WORKDIR /usr/src/app
 # 1. Copiamos solo los archivos de dependencias
 COPY --chown=node:node package*.json ./
 
-# 2. Instalamos esquivando el postinstall automático de Prisma
-RUN npm ci --ignore-scripts
+# El schema debe estar presente antes de `npm ci`: el postinstall corre
+# `prisma generate`, que falla si no encuentra prisma/schema.prisma.
+COPY --chown=node:node prisma ./prisma
+
+RUN npm ci
 
 # 3. Copiamos el resto del código fuente (incluyendo prisma/schema.prisma)
 COPY --chown=node:node . .
-
-# 4. Ahora sí generamos los binarios de Prisma de forma manual
-RUN npx prisma generate
 
 RUN mkdir -p logs && chown -R node:node logs
 
