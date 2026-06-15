@@ -178,20 +178,35 @@ const getDriveActivitiesForDay = async (refreshToken, timeMin, timeMax) => {
             pageSize: 100,
         });
 
-        // Combinar evitando duplicados: si mainActivities ya tiene un
-        // permissionChange para el mismo archivo y timestamp, no lo agregamos.
-        const mainKeys = new Set(
+        // Query separada para edit: la consolidación legacy puede suprimirlo
+        // cuando coexiste con create/rename sobre el mismo archivo.
+        const editActivities = await queryDriveActivityPaginated(driveactivity, {
+            filter: `${timeFilter} AND detail.action_detail_case:EDIT`,
+            consolidationStrategy: { none: {} },
+            pageSize: 100,
+        });
+
+        // Construir set de claves ya presentes en mainActivities para deduplicar.
+        const mainKeysByAction = (actionName) => new Set(
             mainActivities
-                .filter(a => Object.keys(a.primaryActionDetail || {})[0] === 'permissionChange')
+                .filter(a => Object.keys(a.primaryActionDetail || {})[0] === actionName)
                 .map(a => `${a.targets?.[0]?.driveItem?.name}_${a.timestamp}`)
         );
 
+        const mainPermissionKeys = mainKeysByAction('permissionChange');
+        const mainEditKeys = mainKeysByAction('edit');
+
         const newPermissions = permissionActivities.filter(a => {
             const key = `${a.targets?.[0]?.driveItem?.name}_${a.timestamp}`;
-            return !mainKeys.has(key);
+            return !mainPermissionKeys.has(key);
         });
 
-        return [...mainActivities, ...newPermissions];
+        const newEdits = editActivities.filter(a => {
+            const key = `${a.targets?.[0]?.driveItem?.name}_${a.timestamp}`;
+            return !mainEditKeys.has(key);
+        });
+
+        return [...mainActivities, ...newPermissions, ...newEdits];
     } catch (error) {
         logger.error('Error al obtener actividades de Drive', { message: error.message, code: error.code });
         throw new Error('Error al obtener actividades de Drive', { cause: error });
