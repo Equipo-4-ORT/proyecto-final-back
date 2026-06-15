@@ -107,9 +107,88 @@ const extractDriveTarget = (activity) => {
     };
 };
 
+// Concurrencia máxima al consultar la Drive Activity API por archivo.
+// Cada fileId requiere una llamada separada; este tope evita rate limits.
+const ACTIVITY_FETCH_CONCURRENCY = 5;
+
 /**
- * Consulta la Drive Activity API para el rango de tiempo dado.
- * Maneja la paginación automáticamente hasta agotar los resultados.
+ * Devuelve los IDs de todos los archivos (propios + compartidos) que el
+ * usuario modificó en la ventana [timeMin, timeMax).
+ * Usa Drive API v3 files.list con includeItemsFromAllDrives para cruzar
+ * el límite de "Mi unidad" y capturar archivos de "Compartidos conmigo".
+ *
+ * @param {object} auth    - OAuth2Client autenticado
+ * @param {string} timeMin - ISO 8601
+ * @param {string} timeMax - ISO 8601
+ * @returns {Promise<string[]>} - Array de fileIds únicos
+ */
+const getModifiedFileIds = async (auth, timeMin, timeMax) => {
+    const drive = google.drive({ version: 'v3', auth });
+    const fileIds = [];
+    let pageToken = null;
+
+    do {
+        const res = await drive.files.list({
+            q: `modifiedTime >= "${timeMin}" AND modifiedTime < "${timeMax}" AND trashed = false`,
+            fields: 'nextPageToken, files(id)',
+            includeItemsFromAllDrives: true,
+            supportsAllDrives: true,
+            corpora: 'allDrives',
+            pageSize: 1000,
+            ...(pageToken && { pageToken }),
+        });
+
+        for (const f of res.data.files || []) fileIds.push(f.id);
+        pageToken = res.data.nextPageToken || null;
+    } while (pageToken);
+
+    return fileIds;
+};
+
+/**
+ * Consulta la Drive Activity API para un archivo específico en el rango dado.
+ * Maneja paginación internamente.
+ *
+ * @param {object} driveactivity - Cliente googleapis driveactivity v2
+ * @param {string} fileId        - ID del archivo en Drive
+ * @param {string} timeMin       - ISO 8601
+ * @param {string} timeMax       - ISO 8601
+ * @returns {Promise<object[]>}  - Array de DriveActivity crudos
+ */
+const getActivitiesForFile = async (driveactivity, fileId, timeMin, timeMax) => {
+    const activities = [];
+    let nextPageToken = null;
+    let pages = 0;
+
+    do {
+        const response = await driveactivity.activity.query({
+            requestBody: {
+                itemName: `items/${fileId}`,
+                filter: `time >= "${timeMin}" AND time < "${timeMax}"`,
+                consolidationStrategy: { legacy: {} },
+                pageSize: 100,
+                ...(nextPageToken && { pageToken: nextPageToken }),
+            },
+        });
+
+        const page = response.data.activities || [];
+        activities.push(...page);
+        nextPageToken = response.data.nextPageToken || null;
+        pages += 1;
+    } while (nextPageToken && pages < MAX_PAGES);
+
+    return activities;
+};
+
+/**
+ * Consulta la Drive Activity API para el rango de tiempo dado, incluyendo
+ * archivos compartidos con el usuario (no solo "Mi unidad").
+ *
+ * Estrategia de dos pasos:
+ *   1. Drive API v3 files.list descubre todos los fileIds modificados en la
+ *      ventana (propios + compartidos, shared drives incluidos).
+ *   2. Drive Activity API se consulta por itemName para cada fileId, con
+ *      concurrencia acotada para no gatillar rate limits.
  *
  * @param {string} refreshToken - Refresh token del usuario (ya descifrado)
  * @param {string} timeMin      - Inicio del rango en ISO 8601 (UTC)
@@ -121,31 +200,25 @@ const getDriveActivitiesForDay = async (refreshToken, timeMin, timeMax) => {
         const auth = getAuthenticatedGoogleClient(refreshToken);
         const driveactivity = google.driveactivity({ version: 'v2', auth });
 
-        const activities = [];
-        let nextPageToken = null;
-        let pages = 0;
+        const fileIds = await getModifiedFileIds(auth, timeMin, timeMax);
+        if (fileIds.length === 0) return [];
 
-        do {
-            const response = await driveactivity.activity.query({
-                requestBody: {
-                    filter: `time >= "${timeMin}" AND time < "${timeMax}"`,
-                    consolidationStrategy: { legacy: {} },
-                    pageSize: 100,
-                    ...(nextPageToken && { pageToken: nextPageToken }),
-                },
-            });
+        logger.info('Drive: archivos modificados en ventana', { count: fileIds.length });
 
-            const page = response.data.activities || [];
-            activities.push(...page);
-            nextPageToken = response.data.nextPageToken || null;
-            pages += 1;
-        } while (nextPageToken && pages < MAX_PAGES);
+        const perFileResults = await mapWithConcurrency(
+            fileIds,
+            ACTIVITY_FETCH_CONCURRENCY,
+            async (fileId) => {
+                try {
+                    return await getActivitiesForFile(driveactivity, fileId, timeMin, timeMax);
+                } catch (err) {
+                    logger.warn('Drive Activity: error al consultar archivo', { fileId, message: err.message });
+                    return [];
+                }
+            },
+        );
 
-        if (nextPageToken) {
-            logger.warn('Tope de páginas de Drive Activity alcanzado', { pages, collected: activities.length });
-        }
-
-        return activities;
+        return perFileResults.flat();
     } catch (error) {
         logger.error('Error al obtener actividades de Drive', { message: error.message, code: error.code });
         throw new Error('Error al obtener actividades de Drive', { cause: error });
@@ -285,11 +358,20 @@ const persistDriveActivities = async (userId, refreshToken, startTime, endTime) 
 
     const activitiesToSave = buildWorkEstimates(byFile, userId, windowDate);
 
+    // Determinar cuáles externalIds ya existen para separar creates de updates
+    // en el mensaje de respuesta. No afecta la lógica del upsert.
+    const externalIds = activitiesToSave.map((r) => r.externalId);
+    const existing = await prisma.dailyActivity.findMany({
+        where: { userId, source: 'drive', externalId: { in: externalIds } },
+        select: { externalId: true },
+    });
+    const existingSet = new Set(existing.map((r) => r.externalId));
+
     // Re-sync idempotente sin congelar la duración: upsert por externalId para que
     // un segundo sync del mismo día recalcule startTime/endTime sin cambiar el id
     // de BD. Preservar el id es importante si en el futuro se referencian estas
     // filas desde otras tablas o desde el frontend.
-    const results = await prisma.$transaction(
+    await prisma.$transaction(
         activitiesToSave.map((record) =>
             prisma.dailyActivity.upsert({
                 where: {
@@ -311,7 +393,16 @@ const persistDriveActivities = async (userId, refreshToken, startTime, endTime) 
         )
     );
 
-    return { count: results.length, message: `${results.length} actividades de Drive guardadas` };
+    const created = activitiesToSave.filter((r) => !existingSet.has(r.externalId)).length;
+    const updated = activitiesToSave.length - created;
+
+    if (created === 0 && updated > 0) {
+        return { count: 0, updated, message: `${updated} actividades ya existían y fueron actualizadas` };
+    }
+    if (updated === 0) {
+        return { count: created, updated: 0, message: `${created} actividades de Drive guardadas` };
+    }
+    return { count: created, updated, message: `${created} actividades de Drive guardadas, ${updated} actualizadas` };
 };
 
 // TODO (incremental): summarizeDriveActivities y enrichDriveActivitySummary todavía
