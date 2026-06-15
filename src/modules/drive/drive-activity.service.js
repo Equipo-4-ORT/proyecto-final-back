@@ -198,25 +198,24 @@ const getDriveActivitiesForDay = async (refreshToken, timeMin, timeMax) => {
             pageSize: 100,
         });
 
-        // Construir set de claves ya presentes en mainActivities para deduplicar.
+        // Clave de dedup: nombre del archivo + instante de inicio (timestamp o timeRange.startTime).
+        const activityKey = (a) => {
+            const name = a.targets?.[0]?.driveItem?.name ?? '';
+            const ts   = a.timestamp ?? a.timeRange?.startTime ?? '';
+            return `${name}_${ts}`;
+        };
+
         const mainKeysByAction = (actionName) => new Set(
             mainActivities
                 .filter(a => Object.keys(a.primaryActionDetail || {})[0] === actionName)
-                .map(a => `${a.targets?.[0]?.driveItem?.name}_${a.timestamp}`)
+                .map(activityKey)
         );
 
         const mainPermissionKeys = mainKeysByAction('permissionChange');
         const mainEditKeys = mainKeysByAction('edit');
 
-        const newPermissions = permissionActivities.filter(a => {
-            const key = `${a.targets?.[0]?.driveItem?.name}_${a.timestamp}`;
-            return !mainPermissionKeys.has(key);
-        });
-
-        const newEdits = editActivities.filter(a => {
-            const key = `${a.targets?.[0]?.driveItem?.name}_${a.timestamp}`;
-            return !mainEditKeys.has(key);
-        });
+        const newPermissions = permissionActivities.filter(a => !mainPermissionKeys.has(activityKey(a)));
+        const newEdits = editActivities.filter(a => !mainEditKeys.has(activityKey(a)));
 
         return [...mainActivities, ...newPermissions, ...newEdits];
     } catch (error) {
