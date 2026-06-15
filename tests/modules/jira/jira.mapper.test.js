@@ -95,7 +95,7 @@ describe('jira.mapper', () => {
                     author: { accountId: ME },
                     created: '2026-05-10T16:00:00.000Z',
                     items: [
-                        { field: 'labels', fromString: 'x', toString: 'y' }, // no trackeado → se ignora
+                        { field: 'priority', fromString: 'Low', toString: 'High' }, // no trackeado → se ignora
                         { field: 'status', fromString: 'In Progress', toString: 'Done' },
                     ],
                 },
@@ -140,7 +140,7 @@ describe('jira.mapper', () => {
             const histories = [
                 { id: 'h1', author: { accountId: ME }, created: '2026-05-10T08:00:00.000Z', items: [{ field: 'status', fromString: 'a', toString: 'b' }] },
                 { id: 'h2', author: { accountId: OTHER }, created: '2026-05-10T10:00:00.000Z', items: [{ field: 'status', fromString: 'a', toString: 'b' }] },
-                { id: 'h3', author: { accountId: ME }, created: '2026-05-10T10:00:00.000Z', items: [{ field: 'labels', fromString: 'a', toString: 'b' }] }, // campo no trackeado
+                { id: 'h3', author: { accountId: ME }, created: '2026-05-10T10:00:00.000Z', items: [{ field: 'priority', fromString: 'a', toString: 'b' }] }, // campo no trackeado
             ];
             expect(mapper.mapChangelogToActivities('user-1', issue, histories, ME, WINDOW_START, WINDOW_END)).toEqual([]);
         });
