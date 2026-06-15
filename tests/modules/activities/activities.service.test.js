@@ -65,6 +65,13 @@ describe('dayToUTCRange', () => {
 });
 
 describe('listActivities', () => {
+  // listActivities agrega siempre este OR para ocultar al front las actividades de
+  // Drive sin fileType relevante (document/spreadsheet/presentation).
+  const DRIVE_FILETYPE_OR = [
+    { source: { not: 'drive' } },
+    { source: 'drive', fileType: { in: ['document', 'spreadsheet', 'presentation'] } },
+  ];
+
   test('devuelve las actividades del usuario sin filtros', async () => {
     prisma.dailyActivity.findMany.mockResolvedValue([MOCK_ACTIVITY]);
 
@@ -72,7 +79,7 @@ describe('listActivities', () => {
 
     expect(result).toEqual([MOCK_ACTIVITY]);
     expect(prisma.dailyActivity.findMany).toHaveBeenCalledWith({
-      where: { userId: 'user-id-1' },
+      where: { userId: 'user-id-1', OR: DRIVE_FILETYPE_OR },
       orderBy: { startTime: 'desc' },
     });
   });
@@ -83,7 +90,7 @@ describe('listActivities', () => {
     await listActivities('user-id-1', { source: 'drive' });
 
     expect(prisma.dailyActivity.findMany).toHaveBeenCalledWith({
-      where: { userId: 'user-id-1', source: 'drive' },
+      where: { userId: 'user-id-1', source: 'drive', OR: DRIVE_FILETYPE_OR },
       orderBy: { startTime: 'desc' },
     });
   });
@@ -100,6 +107,7 @@ describe('listActivities', () => {
           gte: new Date('2025-05-24T03:00:00.000Z'),
           lt:  new Date('2025-05-25T03:00:00.000Z'),
         },
+        OR: DRIVE_FILETYPE_OR,
       },
       orderBy: { startTime: 'desc' },
     });
@@ -118,6 +126,7 @@ describe('listActivities', () => {
           gte: new Date('2025-05-24T00:00:00.000Z'),
           lt:  new Date('2025-05-25T00:00:00.000Z'),
         },
+        OR: DRIVE_FILETYPE_OR,
       },
       orderBy: { startTime: 'desc' },
     });

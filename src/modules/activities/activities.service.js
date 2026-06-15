@@ -73,6 +73,13 @@ const listActivities = async (userId, filters = {}) => {
     where.startTime = dayToUTCRange(date, timezone);
   }
 
+  // Solo exponer al front actividades de Drive con fileType relevante.
+  // El resto queda en BD pero no se devuelve.
+  where.OR = [
+    { source: { not: 'drive' } },
+    { source: 'drive', fileType: { in: ['document', 'spreadsheet', 'presentation'] } },
+  ];
+
   return prisma.dailyActivity.findMany({
     where,
     orderBy: { startTime: 'desc' },
@@ -113,7 +120,7 @@ const createActivity = async (userId, { activityType, startTime, endTime, metada
   });
 };
 
-const updateActivity = async (userId, id, { activityType, startTime, endTime, metadata }) => {
+const updateActivity = async (userId, id, { title, activityType, startTime, endTime, metadata }) => {
   const activity = await prisma.dailyActivity.findUnique({ where: { id } });
 
   if (!activity) throw new ActivityNotFoundError();
@@ -123,6 +130,7 @@ const updateActivity = async (userId, id, { activityType, startTime, endTime, me
     return await prisma.dailyActivity.update({
       where: { id },
       data: {
+        ...(title !== undefined && { title }),
         ...(activityType && { activityType }),
         ...(startTime && { startTime: new Date(startTime) }),
         ...(endTime && { endTime: new Date(endTime) }),

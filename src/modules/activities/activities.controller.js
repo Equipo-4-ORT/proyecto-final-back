@@ -63,14 +63,14 @@ const postActivity = async (req, res) => {
 };
 
 const putActivity = async (req, res) => {
-  const { activityType, startTime, endTime, metadata } = req.body;
+  const { title, activityType, startTime, endTime, metadata } = req.body;
 
   if (startTime && endTime && new Date(startTime) >= new Date(endTime)) {
     return res.status(400).json({ error: 'Bad Request', message: 'startTime debe ser anterior a endTime' });
   }
 
   try {
-    const activity = await updateActivity(req.user.id, req.params.id, { activityType, startTime, endTime, metadata });
+    const activity = await updateActivity(req.user.id, req.params.id, { title, activityType, startTime, endTime, metadata });
     return res.status(200).json(activity);
   } catch (error) {
     if (handleKnownErrors(res, error)) return;

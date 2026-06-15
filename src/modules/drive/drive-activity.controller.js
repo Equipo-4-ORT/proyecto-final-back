@@ -9,7 +9,7 @@ const logger = require('../../shared/utils/logger');
 // arma la ventana a partir de la jornada laboral del usuario (hora inicio/fin +
 // timezone, que vivirán en la BD). No hay front: la ventana no la define el cliente.
 const syncDriveActivities = async (req, res) => {
-    const { startTime, endTime } = req.body;
+    const { startTime, endTime } = req.body ?? {};
 
     if (!startTime || !endTime) {
         return res.status(400).json({

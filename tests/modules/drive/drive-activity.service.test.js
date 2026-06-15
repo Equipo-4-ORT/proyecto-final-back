@@ -27,12 +27,13 @@ jest.mock('googleapis', () => ({
 jest.mock('../../../src/modules/google/google.service');
 jest.mock('../../../src/shared/database/prisma', () => ({
     dailyActivity: {
-        createMany: jest.fn().mockResolvedValue({ count: 0 }),
-        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+        // findMany se usa para separar creates de updates: por defecto no hay
+        // registros previos (todos los upserts cuentan como create).
+        findMany: jest.fn().mockResolvedValue([]),
+        upsert: jest.fn().mockResolvedValue({}),
     },
-    // El service persiste con delete-then-create dentro de una transacción.
-    // El mock ejecuta las operaciones tal cual: preserva orden y argumentos,
-    // y devuelve [resultadoDelete, resultadoCreate] como el array form de Prisma.
+    // El service persiste con upserts dentro de una transacción (array form).
+    // El mock ejecuta las operaciones en paralelo y devuelve el array de resultados.
     $transaction: jest.fn((ops) => Promise.all(ops)),
 }));
 jest.mock('../../../src/shared/utils/logger', () => ({
@@ -70,7 +71,9 @@ describe('Drive Activity Service', () => {
             const result = await getDriveActivitiesForDay('token', '2026-05-26T00:00:00Z', '2026-05-27T00:00:00Z');
 
             expect(result).toEqual([]);
-            expect(mockActivityQuery).toHaveBeenCalledTimes(1);
+            // 1 query principal + 7 queries por acción (EDIT, CREATE, RENAME, COMMENT,
+            // PERMISSION_CHANGE, MOVE, DELETE) que se disparan en paralelo.
+            expect(mockActivityQuery).toHaveBeenCalledTimes(8);
         });
 
         test('Devuelve las actividades de una sola página correctamente', async () => {
@@ -83,36 +86,63 @@ describe('Drive Activity Service', () => {
 
             const result = await getDriveActivitiesForDay('token', '2026-05-26T00:00:00Z', '2026-05-27T00:00:00Z');
 
+            // La query principal y las 7 por acción devuelven la misma actividad;
+            // la dedup por fileId+actionType deja un solo resultado.
             expect(result).toHaveLength(1);
-            expect(mockActivityQuery).toHaveBeenCalledTimes(1);
+            expect(mockActivityQuery).toHaveBeenCalledTimes(8);
         });
 
         test('Maneja la paginación acumulando todas las páginas', async () => {
-            const page1 = { primaryActionDetail: { edit: {} }, timestamp: '2026-05-26T10:00:00Z' };
-            const page2 = { primaryActionDetail: { create: {} }, timestamp: '2026-05-26T14:00:00Z' };
+            const page1 = {
+                primaryActionDetail: { edit: {} },
+                targets: [{ driveItem: { name: 'items/doc1' } }],
+                timestamp: '2026-05-26T10:00:00Z',
+            };
+            const page2 = {
+                primaryActionDetail: { edit: {} },
+                targets: [{ driveItem: { name: 'items/doc2' } }],
+                timestamp: '2026-05-26T14:00:00Z',
+            };
 
-            mockActivityQuery
-                .mockResolvedValueOnce({ data: { activities: [page1], nextPageToken: 'token-pagina-2' } })
-                .mockResolvedValueOnce({ data: { activities: [page2] } });
+            // Solo la query principal pagina; las queries por acción devuelven vacío.
+            // (Se distinguen por el filtro: las por acción llevan action_detail_case.)
+            mockActivityQuery.mockImplementation(({ requestBody }) => {
+                if (requestBody.filter.includes('action_detail_case')) {
+                    return Promise.resolve({ data: { activities: [] } });
+                }
+                if (!requestBody.pageToken) {
+                    return Promise.resolve({ data: { activities: [page1], nextPageToken: 'token-pagina-2' } });
+                }
+                return Promise.resolve({ data: { activities: [page2] } });
+            });
 
             const result = await getDriveActivitiesForDay('token', '2026-05-26T00:00:00Z', '2026-05-27T00:00:00Z');
 
+            // Ambas páginas de la query principal quedan acumuladas.
             expect(result).toHaveLength(2);
-            expect(mockActivityQuery).toHaveBeenCalledTimes(2);
-            expect(mockActivityQuery.mock.calls[1][0].requestBody.pageToken).toBe('token-pagina-2');
+            // El token de la página 2 se reenvió en alguna de las llamadas.
+            const tokenedCall = mockActivityQuery.mock.calls.find(
+                (c) => c[0].requestBody.pageToken === 'token-pagina-2',
+            );
+            expect(tokenedCall).toBeDefined();
         });
 
         test('Corta la paginación al alcanzar el tope de páginas y loguea un warn', async () => {
             // nextPageToken nunca se vacía: simula el bug de token cíclico de la API.
-            mockActivityQuery.mockResolvedValue({
-                data: { activities: [], nextPageToken: 'loop' },
+            // Solo la query principal cicla; las por acción devuelven vacío y cortan.
+            mockActivityQuery.mockImplementation(({ requestBody }) => {
+                if (requestBody.filter.includes('action_detail_case')) {
+                    return Promise.resolve({ data: { activities: [] } });
+                }
+                return Promise.resolve({ data: { activities: [], nextPageToken: 'loop' } });
             });
 
             const result = await getDriveActivitiesForDay('token', '2026-05-26T00:00:00Z', '2026-05-27T00:00:00Z');
 
             // No entra en loop infinito: corta en MAX_PAGES (100).
             expect(result).toEqual([]);
-            expect(mockActivityQuery).toHaveBeenCalledTimes(100);
+            // 100 páginas de la principal + 7 queries por acción (una página cada una).
+            expect(mockActivityQuery).toHaveBeenCalledTimes(107);
             expect(logger.warn).toHaveBeenCalledWith(
                 'Tope de páginas de Drive Activity alcanzado',
                 expect.objectContaining({ pages: 100 }),
@@ -135,11 +165,19 @@ describe('Drive Activity Service', () => {
         const USER_ID = 'user-uuid-123';
         const WINDOW_DATE = '2026-05-26';
 
-        test('acción única: endTime = timestamp + buffer de 5 min', () => {
+        // Helper: arma una entrada byFile con la forma nueva (intervals + actionType).
+        const entry = (overrides) => ({
+            fileId: 'doc1',
+            actionType: 'edit',
+            mimeType: 'application/vnd.google-apps.document',
+            title: 'Doc',
+            intervals: [{ startMs: new Date('2026-05-26T10:00:00.000Z').getTime(), endMs: null }],
+            ...overrides,
+        });
+
+        test('acción continua única: endTime = startMs + buffer de 5 min', () => {
             const tsMs = new Date('2026-05-26T10:00:00.000Z').getTime();
-            const byFile = new Map([
-                ['doc1', { fileId: 'doc1', mimeType: 'application/vnd.google-apps.document', title: 'Doc', timestampsMs: [tsMs] }],
-            ]);
+            const byFile = new Map([['doc1__edit', entry({ intervals: [{ startMs: tsMs, endMs: null }] })]]);
 
             const [record] = buildWorkEstimates(byFile, USER_ID, WINDOW_DATE);
 
@@ -147,26 +185,29 @@ describe('Drive Activity Service', () => {
             expect(record.endTime).toEqual(new Date(tsMs + WORK_BUFFER_MS));
         });
 
-        test('varias acciones: startTime = primera, endTime = última + buffer', () => {
+        test('varias acciones en una sesión: startTime = primera, endTime = última (sin endMs no se suma buffer)', () => {
             const t1 = new Date('2026-05-26T10:00:00.000Z').getTime();
             const t2 = new Date('2026-05-26T10:30:00.000Z').getTime();
             const t3 = new Date('2026-05-26T11:00:00.000Z').getTime();
-            const byFile = new Map([
-                ['doc1', { fileId: 'doc1', mimeType: null, title: null, timestampsMs: [t2, t1, t3] }],
-            ]);
+            const byFile = new Map([['doc1__edit', entry({
+                title: null, mimeType: null,
+                intervals: [{ startMs: t2, endMs: null }, { startMs: t1, endMs: null }, { startMs: t3, endMs: null }],
+            })]]);
 
             const [record] = buildWorkEstimates(byFile, USER_ID, WINDOW_DATE);
 
+            // Gaps de 30 min: misma sesión. El buffer solo actúa como piso de duración,
+            // así que el endTime cae en la última acción, no en última + buffer.
             expect(record.startTime).toEqual(new Date(t1));
-            expect(record.endTime).toEqual(new Date(t3 + WORK_BUFFER_MS));
+            expect(record.endTime).toEqual(new Date(t3));
         });
 
-        test('respeta el tope de 2 h aunque las acciones estén muy separadas', () => {
+        test('respeta el tope de 2 h cuando el rango de la sesión lo supera', () => {
             const t1 = new Date('2026-05-26T09:00:00.000Z').getTime();
-            const t2 = new Date('2026-05-26T14:00:00.000Z').getTime(); // 5 h después
-            const byFile = new Map([
-                ['doc1', { fileId: 'doc1', mimeType: null, title: null, timestampsMs: [t1, t2] }],
-            ]);
+            // Un único intervalo con endMs 5 h después (la API devolvió timeRange largo).
+            const byFile = new Map([['doc1__edit', entry({
+                intervals: [{ startMs: t1, endMs: t1 + 5 * 60 * 60 * 1000 }],
+            })]]);
 
             const [record] = buildWorkEstimates(byFile, USER_ID, WINDOW_DATE);
 
@@ -174,52 +215,44 @@ describe('Drive Activity Service', () => {
             expect(durationMs).toBe(MAX_WORK_DURATION_MS);
         });
 
-        test('genera un externalId estable del tipo file_<fileId>_<YYYY-MM-DD>', () => {
+        test('externalId incluye la acción: file_<fileId>_<actionType>_<YYYY-MM-DD>', () => {
             const tsMs = new Date('2026-05-26T10:00:00.000Z').getTime();
-            const byFile = new Map([
-                ['doc1', { fileId: 'doc1', mimeType: null, title: null, timestampsMs: [tsMs] }],
-            ]);
+            const byFile = new Map([['doc1__edit', entry({
+                mimeType: null, title: null, intervals: [{ startMs: tsMs, endMs: null }],
+            })]]);
 
             const [record] = buildWorkEstimates(byFile, USER_ID, WINDOW_DATE);
 
-            expect(record.externalId).toBe('file_doc1_2026-05-26');
+            expect(record.externalId).toBe('file_doc1_edit_2026-05-26');
         });
 
-        test('activityType se deriva del mimeType, source siempre es "drive"', () => {
-            const tsMs = Date.now();
-            const byFile = new Map([
-                ['doc1', { fileId: 'doc1', mimeType: 'application/vnd.google-apps.document', title: null, timestampsMs: [tsMs] }],
-            ]);
+        test('activityType es la acción y fileType se deriva del mimeType; source siempre es "drive"', () => {
+            const byFile = new Map([['doc1__edit', entry({ title: null })]]);
 
             const [record] = buildWorkEstimates(byFile, USER_ID, WINDOW_DATE);
 
-            expect(record.activityType).toBe('document');
+            expect(record.activityType).toBe('edit');
+            expect(record.fileType).toBe('document');
             expect(record.source).toBe('drive');
         });
 
-        test('activityType es "file" para mimeTypes no nativos de Workspace (PDF, imagen, etc.)', () => {
-            const tsMs = Date.now();
-            const byFile = new Map([
-                ['pdf1', { fileId: 'pdf1', mimeType: 'application/pdf', title: null, timestampsMs: [tsMs] }],
-            ]);
+        test('fileType es "file" para mimeTypes no nativos de Workspace (PDF, imagen, etc.)', () => {
+            const byFile = new Map([['pdf1__edit', entry({ fileId: 'pdf1', mimeType: 'application/pdf', title: null })]]);
 
             const [record] = buildWorkEstimates(byFile, USER_ID, WINDOW_DATE);
 
-            expect(record.activityType).toBe('file');
+            expect(record.fileType).toBe('file');
         });
 
-        test('activityType es "file" cuando mimeType es null', () => {
-            const tsMs = Date.now();
-            const byFile = new Map([
-                ['file1', { fileId: 'file1', mimeType: null, title: null, timestampsMs: [tsMs] }],
-            ]);
+        test('fileType es "file" cuando mimeType es null', () => {
+            const byFile = new Map([['file1__edit', entry({ fileId: 'file1', mimeType: null, title: null })]]);
 
             const [record] = buildWorkEstimates(byFile, USER_ID, WINDOW_DATE);
 
-            expect(record.activityType).toBe('file');
+            expect(record.fileType).toBe('file');
         });
 
-        test('cubre todos los tipos nativos de Workspace: spreadsheet, presentation, form, drawing, script', () => {
+        test('cubre todos los tipos nativos de Workspace en fileType: spreadsheet, presentation, form, drawing, script', () => {
             const cases = [
                 ['application/vnd.google-apps.spreadsheet',  'spreadsheet'],
                 ['application/vnd.google-apps.presentation', 'presentation'],
@@ -227,22 +260,19 @@ describe('Drive Activity Service', () => {
                 ['application/vnd.google-apps.drawing',      'drawing'],
                 ['application/vnd.google-apps.script',       'script'],
             ];
-            const tsMs = Date.now();
 
             cases.forEach(([mimeType, expectedType]) => {
-                const byFile = new Map([
-                    ['f1', { fileId: 'f1', mimeType, title: null, timestampsMs: [tsMs] }],
-                ]);
+                const byFile = new Map([['f1__edit', entry({ fileId: 'f1', mimeType, title: null })]]);
                 const [record] = buildWorkEstimates(byFile, USER_ID, WINDOW_DATE);
-                expect(record.activityType).toBe(expectedType);
+                expect(record.fileType).toBe(expectedType);
             });
         });
 
-        test('genera un registro por archivo (no uno por acción)', () => {
-            const t1 = Date.now();
+        test('genera un registro por entrada archivo+acción', () => {
+            const t1 = new Date('2026-05-26T10:00:00.000Z').getTime();
             const byFile = new Map([
-                ['doc1', { fileId: 'doc1', mimeType: null, title: null, timestampsMs: [t1, t1 + 1000] }],
-                ['doc2', { fileId: 'doc2', mimeType: null, title: null, timestampsMs: [t1 + 2000] }],
+                ['doc1__edit', entry({ fileId: 'doc1', mimeType: null, title: null, intervals: [{ startMs: t1, endMs: null }, { startMs: t1 + 1000, endMs: null }] })],
+                ['doc2__edit', entry({ fileId: 'doc2', mimeType: null, title: null, intervals: [{ startMs: t1 + 2000, endMs: null }] })],
             ]);
 
             const records = buildWorkEstimates(byFile, USER_ID, WINDOW_DATE);
@@ -250,38 +280,34 @@ describe('Drive Activity Service', () => {
             expect(records).toHaveLength(2);
         });
 
-        test('incluye fileId, mimeType y title en metadata', () => {
-            const tsMs = Date.now();
+        test('incluye fileId, mimeType y title (con verbo) en metadata', () => {
+            const tsMs = new Date('2026-05-26T10:00:00.000Z').getTime();
             const mimeType = 'application/vnd.google-apps.spreadsheet';
-            const byFile = new Map([
-                ['sheet1', { fileId: 'sheet1', mimeType, title: 'Mi hoja', timestampsMs: [tsMs] }],
-            ]);
+            const byFile = new Map([['sheet1__edit', entry({
+                fileId: 'sheet1', mimeType, title: 'Mi hoja', intervals: [{ startMs: tsMs, endMs: null }],
+            })]]);
 
             const [record] = buildWorkEstimates(byFile, USER_ID, WINDOW_DATE);
 
-            expect(record.metadata).toEqual({ title: 'Mi hoja', fileId: 'sheet1', mimeType });
+            expect(record.metadata).toEqual({ title: 'Editó "Mi hoja"', fileId: 'sheet1', mimeType });
         });
 
-        test('puebla el campo title de primer nivel además de metadata', () => {
-            const tsMs = Date.now();
-            const byFile = new Map([
-                ['doc1', { fileId: 'doc1', mimeType: 'application/vnd.google-apps.document', title: 'Mi informe', timestampsMs: [tsMs] }],
-            ]);
+        test('el title de primer nivel antepone el verbo de la acción al nombre del archivo', () => {
+            const tsMs = new Date('2026-05-26T10:00:00.000Z').getTime();
+            const byFile = new Map([['doc1__edit', entry({ title: 'Mi informe', intervals: [{ startMs: tsMs, endMs: null }] })]]);
 
             const [record] = buildWorkEstimates(byFile, USER_ID, WINDOW_DATE);
 
-            expect(record.title).toBe('Mi informe');
+            expect(record.title).toBe('Editó "Mi informe"');
         });
 
-        test('title de primer nivel es null cuando el archivo no tiene título', () => {
-            const tsMs = Date.now();
-            const byFile = new Map([
-                ['doc1', { fileId: 'doc1', mimeType: 'application/vnd.google-apps.document', title: null, timestampsMs: [tsMs] }],
-            ]);
+        test('title de primer nivel es solo el verbo cuando el archivo no tiene nombre', () => {
+            const tsMs = new Date('2026-05-26T10:00:00.000Z').getTime();
+            const byFile = new Map([['doc1__edit', entry({ title: null, intervals: [{ startMs: tsMs, endMs: null }] })]]);
 
             const [record] = buildWorkEstimates(byFile, USER_ID, WINDOW_DATE);
 
-            expect(record.title).toBeNull();
+            expect(record.title).toBe('Editó');
         });
     });
 
@@ -325,18 +351,20 @@ describe('Drive Activity Service', () => {
             expect(mockActivityQuery).not.toHaveBeenCalled();
         });
 
-        test('Filtra acciones no relevantes (rename, move, delete, comment)', async () => {
-            const irrelevantActivities = ['rename', 'move', 'delete', 'comment'].map(type => ({
+        test('Persiste todas las acciones (rename, move, delete, comment) como registros separados', async () => {
+            // Ya no se filtran por tipo: cada acción sobre el archivo genera su registro.
+            const activities = ['rename', 'move', 'delete', 'comment'].map(type => ({
                 primaryActionDetail: { [type]: {} },
                 targets: [{ driveItem: { name: 'items/doc1', title: 'Doc', mimeType: 'application/vnd.google-apps.document' } }],
                 timestamp: '2026-05-26T10:00:00Z',
             }));
-            mockActivityQuery.mockResolvedValue({ data: { activities: irrelevantActivities } });
+            mockActivityQuery.mockResolvedValue({ data: { activities } });
 
             const result = await persistDriveActivities(mockUserId, 'token', startTime, endTime);
 
-            expect(result.count).toBe(0);
-            expect(prisma.dailyActivity.createMany).not.toHaveBeenCalled();
+            expect(result.created).toBe(4);
+            const actions = getUpsertedRecords().map((r) => r.activityType).sort();
+            expect(actions).toEqual(['comment', 'delete', 'move', 'rename']);
         });
 
         test('Filtra archivos de tipo carpeta y acceso directo', async () => {
@@ -352,57 +380,58 @@ describe('Drive Activity Service', () => {
 
             const result = await persistDriveActivities(mockUserId, 'token', startTime, endTime);
 
-            expect(result.count).toBe(0);
-            expect(prisma.dailyActivity.createMany).not.toHaveBeenCalled();
+            expect(result.created).toBe(0);
+            expect(prisma.dailyActivity.upsert).not.toHaveBeenCalled();
         });
 
-        // ── Agrupación por archivo (comportamiento nuevo) ─────────────────────
+        // ── Agrupación por archivo+acción (comportamiento nuevo) ──────────────
 
-        test('Un archivo con una acción: persiste UN registro con activityType derivado del mimeType', async () => {
+        // Helper: extrae el campo `create` de cada upsert llamado
+        const getUpsertedRecords = () =>
+            prisma.dailyActivity.upsert.mock.calls.map((call) => call[0].create);
+
+        test('Un archivo con una acción: persiste UN registro con activityType=acción y fileType derivado del mimeType', async () => {
             const activity = {
                 primaryActionDetail: { edit: {} },
                 targets: [{ driveItem: { name: 'items/doc1', title: 'Mi Documento', mimeType: 'application/vnd.google-apps.document' } }],
                 timestamp: '2026-05-26T10:00:00Z',
             };
             mockActivityQuery.mockResolvedValue({ data: { activities: [activity] } });
-            prisma.dailyActivity.createMany.mockResolvedValue({ count: 1 });
 
             const result = await persistDriveActivities(mockUserId, 'token', startTime, endTime);
 
-            expect(result.count).toBe(1);
-            const data = prisma.dailyActivity.createMany.mock.calls[0][0].data;
+            expect(result.created).toBe(1);
+            const data = getUpsertedRecords();
             expect(data).toHaveLength(1);
-            expect(data[0]).toMatchObject({ source: 'drive', activityType: 'document', userId: mockUserId });
-            expect(data[0].title).toBe('Mi Documento');
-            expect(data[0].metadata).toMatchObject({ title: 'Mi Documento', fileId: 'doc1' });
+            expect(data[0]).toMatchObject({ source: 'drive', activityType: 'edit', fileType: 'document', userId: mockUserId });
+            expect(data[0].title).toBe('Editó "Mi Documento"');
+            expect(data[0].metadata).toMatchObject({ title: 'Editó "Mi Documento"', fileId: 'doc1' });
         });
 
-        test('Acción "create" en spreadsheet: activityType="spreadsheet"', async () => {
+        test('Acción "create" en spreadsheet: activityType="create", fileType="spreadsheet"', async () => {
             const activity = {
                 primaryActionDetail: { create: { new: {} } },
                 targets: [{ driveItem: { name: 'items/sheet1', title: 'Nueva Planilla', mimeType: 'application/vnd.google-apps.spreadsheet' } }],
                 timestamp: '2026-05-26T14:00:00Z',
             };
             mockActivityQuery.mockResolvedValue({ data: { activities: [activity] } });
-            prisma.dailyActivity.createMany.mockResolvedValue({ count: 1 });
 
             await persistDriveActivities(mockUserId, 'token', startTime, endTime);
-            const data = prisma.dailyActivity.createMany.mock.calls[0][0].data;
-            expect(data[0].activityType).toBe('spreadsheet');
+            const record = getUpsertedRecords()[0];
+            expect(record.activityType).toBe('create');
+            expect(record.fileType).toBe('spreadsheet');
         });
 
-        test('Archivo sin mimeType nativo (PDF): activityType="file"', async () => {
+        test('Archivo sin mimeType nativo (PDF): fileType="file"', async () => {
             const activity = {
                 primaryActionDetail: { edit: {} },
                 targets: [{ driveItem: { name: 'items/pdf1', title: 'contrato.pdf', mimeType: 'application/pdf' } }],
                 timestamp: '2026-05-26T10:00:00Z',
             };
             mockActivityQuery.mockResolvedValue({ data: { activities: [activity] } });
-            prisma.dailyActivity.createMany.mockResolvedValue({ count: 1 });
 
             await persistDriveActivities(mockUserId, 'token', startTime, endTime);
-            const data = prisma.dailyActivity.createMany.mock.calls[0][0].data;
-            expect(data[0].activityType).toBe('file');
+            expect(getUpsertedRecords()[0].fileType).toBe('file');
         });
 
         test('Dos archivos distintos → dos registros (uno por archivo)', async () => {
@@ -414,11 +443,10 @@ describe('Drive Activity Service', () => {
                     ],
                 },
             });
-            prisma.dailyActivity.createMany.mockResolvedValue({ count: 2 });
 
             await persistDriveActivities(mockUserId, 'token', startTime, endTime);
 
-            const data = prisma.dailyActivity.createMany.mock.calls[0][0].data;
+            const data = getUpsertedRecords();
             expect(data).toHaveLength(2);
             const fileIds = data.map((r) => r.metadata.fileId).sort();
             expect(fileIds).toEqual(['doc1', 'sheet1']);
@@ -434,15 +462,13 @@ describe('Drive Activity Service', () => {
                     ],
                 },
             });
-            prisma.dailyActivity.createMany.mockResolvedValue({ count: 1 });
 
             await persistDriveActivities(mockUserId, 'token', startTime, endTime);
 
-            const data = prisma.dailyActivity.createMany.mock.calls[0][0].data;
-            expect(data).toHaveLength(1);
+            expect(getUpsertedRecords()).toHaveLength(1);
         });
 
-        test('startTime = primera acción, endTime = última + 5 min', async () => {
+        test('startTime = primera acción de la sesión, endTime = última (sin endMs no se suma buffer)', async () => {
             const t1 = '2026-05-26T10:00:00.000Z';
             const t3 = '2026-05-26T10:45:00.000Z';
             mockActivityQuery.mockResolvedValue({
@@ -454,73 +480,69 @@ describe('Drive Activity Service', () => {
                     ],
                 },
             });
-            prisma.dailyActivity.createMany.mockResolvedValue({ count: 1 });
 
             await persistDriveActivities(mockUserId, 'token', startTime, endTime);
 
-            const record = prisma.dailyActivity.createMany.mock.calls[0][0].data[0];
+            const record = getUpsertedRecords()[0];
             expect(record.startTime).toEqual(new Date(t1));
-            expect(record.endTime).toEqual(new Date(new Date(t3).getTime() + WORK_BUFFER_MS));
+            expect(record.endTime).toEqual(new Date(t3));
         });
 
-        test('Acciones muy separadas: endTime no supera el tope de 2 h', async () => {
+        test('Sesión continua larga: endTime no supera el tope de 2 h', async () => {
             const t1 = '2026-05-26T09:00:00.000Z';
-            const t2 = '2026-05-26T14:00:00.000Z'; // 5 h después
-            mockActivityQuery.mockResolvedValue({
-                data: {
-                    activities: [
-                        { primaryActionDetail: { edit: {} }, targets: [{ driveItem: { name: 'items/doc1', title: 'Doc', mimeType: 'application/vnd.google-apps.document' } }], timestamp: t1 },
-                        { primaryActionDetail: { edit: {} }, targets: [{ driveItem: { name: 'items/doc1', title: 'Doc', mimeType: 'application/vnd.google-apps.document' } }], timestamp: t2 },
-                    ],
-                },
-            });
-            prisma.dailyActivity.createMany.mockResolvedValue({ count: 1 });
-
-            await persistDriveActivities(mockUserId, 'token', startTime, endTime);
-
-            const record = prisma.dailyActivity.createMany.mock.calls[0][0].data[0];
-            const durationMs = record.endTime.getTime() - record.startTime.getTime();
-            expect(durationMs).toBe(MAX_WORK_DURATION_MS);
-        });
-
-        test('Actividad con timeRange: usa startTime del rango como timestamp de la acción', async () => {
-            const rangeStart = '2026-05-26T10:00:00.000Z';
+            // timeRange de 5 h: una sola actividad cuya duración se recorta al tope de 2 h.
             mockActivityQuery.mockResolvedValue({
                 data: {
                     activities: [{
                         primaryActionDetail: { edit: {} },
                         targets: [{ driveItem: { name: 'items/doc1', title: 'Doc', mimeType: 'application/vnd.google-apps.document' } }],
-                        timeRange: { startTime: rangeStart, endTime: '2026-05-26T10:20:00.000Z' },
+                        timeRange: { startTime: t1, endTime: '2026-05-26T14:00:00.000Z' },
                     }],
                 },
             });
-            prisma.dailyActivity.createMany.mockResolvedValue({ count: 1 });
 
             await persistDriveActivities(mockUserId, 'token', startTime, endTime);
 
-            const record = prisma.dailyActivity.createMany.mock.calls[0][0].data[0];
-            // Con una sola acción: startTime = rangeStart, endTime = rangeStart + buffer
-            expect(record.startTime).toEqual(new Date(rangeStart));
-            expect(record.endTime).toEqual(new Date(new Date(rangeStart).getTime() + WORK_BUFFER_MS));
+            const record = getUpsertedRecords()[0];
+            const durationMs = record.endTime.getTime() - record.startTime.getTime();
+            expect(durationMs).toBe(MAX_WORK_DURATION_MS);
         });
 
-        test('Construye externalId estable file_<fileId>_<YYYY-MM-DD>', async () => {
+        test('Actividad con timeRange: startTime = inicio del rango, endTime = fin del rango', async () => {
+            const rangeStart = '2026-05-26T10:00:00.000Z';
+            const rangeEnd   = '2026-05-26T10:20:00.000Z';
+            mockActivityQuery.mockResolvedValue({
+                data: {
+                    activities: [{
+                        primaryActionDetail: { edit: {} },
+                        targets: [{ driveItem: { name: 'items/doc1', title: 'Doc', mimeType: 'application/vnd.google-apps.document' } }],
+                        timeRange: { startTime: rangeStart, endTime: rangeEnd },
+                    }],
+                },
+            });
+
+            await persistDriveActivities(mockUserId, 'token', startTime, endTime);
+
+            const record = getUpsertedRecords()[0];
+            expect(record.startTime).toEqual(new Date(rangeStart));
+            expect(record.endTime).toEqual(new Date(rangeEnd));
+        });
+
+        test('Construye externalId estable file_<fileId>_<actionType>_<YYYY-MM-DD>', async () => {
             const activity = {
                 primaryActionDetail: { edit: {} },
                 targets: [{ driveItem: { name: 'items/doc1', title: 'Doc', mimeType: 'application/vnd.google-apps.document' } }],
                 timestamp: '2026-05-26T10:00:00Z',
             };
             mockActivityQuery.mockResolvedValue({ data: { activities: [activity] } });
-            prisma.dailyActivity.createMany.mockResolvedValue({ count: 1 });
 
             await persistDriveActivities(mockUserId, 'token', startTime, endTime);
 
-            const data = prisma.dailyActivity.createMany.mock.calls[0][0].data;
             // windowDate se toma del inicio de la ventana: 2026-05-26
-            expect(data[0].externalId).toBe('file_doc1_2026-05-26');
+            expect(getUpsertedRecords()[0].externalId).toBe('file_doc1_edit_2026-05-26');
         });
 
-        test('reinserta sin duplicar: borra los registros previos del día y los recrea en una transacción', async () => {
+        test('upsert idempotente: el mismo sync dos veces preserva el id de BD y actualiza duración', async () => {
             mockActivityQuery.mockResolvedValue({
                 data: { activities: [{
                     primaryActionDetail: { edit: {} },
@@ -528,19 +550,23 @@ describe('Drive Activity Service', () => {
                     timestamp: '2026-05-26T10:00:00Z',
                 }] },
             });
-            prisma.dailyActivity.createMany.mockResolvedValue({ count: 1 });
 
             await persistDriveActivities(mockUserId, 'token', startTime, endTime);
 
-            // Primero borra los registros del día para esos archivos (dedup real)…
-            expect(prisma.dailyActivity.deleteMany).toHaveBeenCalledWith({
-                where: { userId: mockUserId, source: 'drive', externalId: { in: ['file_doc1_2026-05-26'] } },
+            // El upsert usa el unique key userId_source_externalId
+            const call = prisma.dailyActivity.upsert.mock.calls[0][0];
+            expect(call.where).toEqual({
+                userId_source_externalId: {
+                    userId: mockUserId,
+                    source: 'drive',
+                    externalId: 'file_doc1_edit_2026-05-26',
+                },
             });
-            // …y luego reinserta SIN skipDuplicates (la dedup la da el delete previo).
-            const createArg = prisma.dailyActivity.createMany.mock.calls[0][0];
-            expect(createArg).not.toHaveProperty('skipDuplicates');
-            expect(createArg.data).toHaveLength(1);
-            // Delete + insert ocurren dentro de una única transacción.
+            // El campo update incluye startTime y endTime (recalculados) pero no externalId ni userId
+            expect(call.update).toHaveProperty('startTime');
+            expect(call.update).toHaveProperty('endTime');
+            expect(call.update).not.toHaveProperty('externalId');
+            // Ocurre dentro de una transacción
             expect(prisma.$transaction).toHaveBeenCalledTimes(1);
         });
 
@@ -551,27 +577,30 @@ describe('Drive Activity Service', () => {
                 timestamp: '2026-05-26T10:00:00Z',
             };
             mockActivityQuery.mockResolvedValue({ data: { activities: [evilActivity] } });
-            prisma.dailyActivity.createMany.mockResolvedValue({ count: 1 });
 
             await persistDriveActivities(mockUserId, 'token', startTime, endTime);
 
-            const saved = prisma.dailyActivity.createMany.mock.calls[0][0].data[0];
+            const saved = getUpsertedRecords()[0];
             // eslint-disable-next-line no-control-regex
             expect(saved.metadata.title).not.toMatch(/[\x00-\x08\x0E-\x1F\x7F]/);
-            expect(saved.metadata.title.length).toBeLessThanOrEqual(200);
-            expect(saved.metadata.title.startsWith('Documento')).toBe(true);
+            // El title final antepone el verbo y entrecomilla el nombre saneado del archivo.
+            expect(saved.metadata.title.startsWith('Editó "Documento')).toBe(true);
+            // El nombre del archivo (entre comillas) quedó truncado a MAX_TITLE_CHARS (200).
+            const fileName = saved.metadata.title.match(/^Editó "(.*)"$/)[1];
+            expect(fileName.length).toBeLessThanOrEqual(200);
         });
 
-        test('Devuelve count 0 y mensaje cuando no hay actividades relevantes', async () => {
+        test('Devuelve created/updated en 0 y mensaje cuando no hay actividades relevantes', async () => {
             mockActivityQuery.mockResolvedValue({ data: { activities: [] } });
 
             const result = await persistDriveActivities(mockUserId, 'token', startTime, endTime);
 
             expect(result).toEqual({
-                count: 0,
+                created: 0,
+                updated: 0,
                 message: 'No se encontraron actividades relevantes de Drive para guardar',
             });
-            expect(prisma.dailyActivity.createMany).not.toHaveBeenCalled();
+            expect(prisma.dailyActivity.upsert).not.toHaveBeenCalled();
         });
     });
 
@@ -636,10 +665,16 @@ describe('Drive Activity Service', () => {
             expect(result[0].totalActions).toBe(1);
         });
 
-        test('Ignora acciones fuera de SUMMARY_ACTIONS (rename, move, delete)', () => {
+        test('Cuenta rename como editCount y move/delete como shareCount', () => {
             const activities = ['rename', 'move', 'delete'].map((t) => docActivity(t));
 
-            expect(summarizeDriveActivities(activities)).toEqual([]);
+            const [entry] = summarizeDriveActivities(activities);
+
+            // rename ∈ EDIT_ACTIONS; move y delete ∈ SHARE_ACTIONS.
+            expect(entry.editCount).toBe(1);
+            expect(entry.shareCount).toBe(2);
+            expect(entry.commentCount).toBe(0);
+            expect(entry.totalActions).toBe(3);
         });
 
         test('Excluye carpetas y accesos directos del resumen', () => {
@@ -725,7 +760,8 @@ describe('Drive Activity Service', () => {
         // Solo comentarios
         // ------------------------------------------------------------------
         describe('Solo comentarios', () => {
-            test('Un archivo con solo comentarios: persistDriveActivities no guarda nada', async () => {
+            test('Un archivo con comentarios en sesiones separadas: persiste un registro por sesión', async () => {
+                // Dos comentarios con 1 h de gap (> SESSION_GAP_MS) → dos sesiones.
                 mockActivityQuery.mockResolvedValue({
                     data: {
                         activities: [
@@ -737,11 +773,12 @@ describe('Drive Activity Service', () => {
 
                 const result = await persistDriveActivities(mockUserId, 'token', startTime, endTime);
 
-                expect(result.count).toBe(0);
-                expect(prisma.dailyActivity.createMany).not.toHaveBeenCalled();
+                expect(result.created).toBe(2);
+                const data = prisma.dailyActivity.upsert.mock.calls.map((c) => c[0].create);
+                expect(data.every((r) => r.activityType === 'comment')).toBe(true);
             });
 
-            test('Varios archivos con solo comentarios: ninguno se persiste', async () => {
+            test('Varios archivos con comentarios: cada uno se persiste', async () => {
                 mockActivityQuery.mockResolvedValue({
                     data: {
                         activities: [
@@ -754,11 +791,12 @@ describe('Drive Activity Service', () => {
 
                 const result = await persistDriveActivities(mockUserId, 'token', startTime, endTime);
 
-                expect(result.count).toBe(0);
-                expect(prisma.dailyActivity.createMany).not.toHaveBeenCalled();
+                expect(result.created).toBe(3);
+                const fileIds = prisma.dailyActivity.upsert.mock.calls.map((c) => c[0].create.metadata.fileId).sort();
+                expect(fileIds).toEqual(['doc1', 'doc2', 'doc3']);
             });
 
-            test('Comentarios mezclados con edits: solo se persiste el archivo que tuvo edits', async () => {
+            test('Comentarios mezclados con edits: se persiste un registro por archivo+acción', async () => {
                 mockActivityQuery.mockResolvedValue({
                     data: {
                         activities: [
@@ -768,14 +806,15 @@ describe('Drive Activity Service', () => {
                         ],
                     },
                 });
-                prisma.dailyActivity.createMany.mockResolvedValue({ count: 1 });
 
                 const result = await persistDriveActivities(mockUserId, 'token', startTime, endTime);
 
-                expect(result.count).toBe(1);
-                const data = prisma.dailyActivity.createMany.mock.calls[0][0].data;
-                expect(data).toHaveLength(1);
-                expect(data[0].metadata.fileId).toBe('doc2');
+                // doc1+comment, doc2+edit, doc2+comment → 3 registros.
+                expect(result.created).toBe(3);
+                const keys = prisma.dailyActivity.upsert.mock.calls
+                    .map((c) => `${c[0].create.metadata.fileId}__${c[0].create.activityType}`)
+                    .sort();
+                expect(keys).toEqual(['doc1__comment', 'doc2__comment', 'doc2__edit']);
             });
 
             test('summarizeDriveActivities sí incluye archivos con solo comentarios (comment ∈ SUMMARY_ACTIONS)', () => {
@@ -824,17 +863,16 @@ describe('Drive Activity Service', () => {
                         }],
                     },
                 });
-                prisma.dailyActivity.createMany.mockResolvedValue({ count: 1 });
-
                 await persistDriveActivities(mockUserId, 'token', startTime, endTime);
 
-                const record = prisma.dailyActivity.createMany.mock.calls[0][0].data[0];
-                expect(record.title).toBeNull();
-                expect(record.metadata.title).toBeNull();
+                const record = prisma.dailyActivity.upsert.mock.calls[0][0].create;
+                // Sin nombre de archivo, el title queda solo con el verbo de la acción.
+                expect(record.title).toBe('Editó');
+                expect(record.metadata.title).toBe('Editó');
                 expect(record.metadata.fileId).toBe('shared1');
             });
 
-            test('Archivo compartido sin mimeType: activityType cae a "file"', async () => {
+            test('Archivo compartido sin mimeType: fileType cae a "file"', async () => {
                 mockActivityQuery.mockResolvedValue({
                     data: {
                         activities: [{
@@ -844,18 +882,14 @@ describe('Drive Activity Service', () => {
                         }],
                     },
                 });
-                prisma.dailyActivity.createMany.mockResolvedValue({ count: 1 });
 
                 await persistDriveActivities(mockUserId, 'token', startTime, endTime);
 
-                const record = prisma.dailyActivity.createMany.mock.calls[0][0].data[0];
-                expect(record.activityType).toBe('file');
+                const record = prisma.dailyActivity.upsert.mock.calls[0][0].create;
+                expect(record.fileType).toBe('file');
             });
 
             test('Actividad con múltiples actores (archivo compartido editado en conjunto): se procesa como una actividad normal', async () => {
-                // La Drive Activity API consolida ediciones de varios usuarios en una
-                // actividad con un array actors[]. El servicio extrae el target, no los
-                // actores, por lo que la lógica es idéntica a una edición individual.
                 mockActivityQuery.mockResolvedValue({
                     data: {
                         activities: [{
@@ -869,14 +903,14 @@ describe('Drive Activity Service', () => {
                         }],
                     },
                 });
-                prisma.dailyActivity.createMany.mockResolvedValue({ count: 1 });
 
                 await persistDriveActivities(mockUserId, 'token', startTime, endTime);
 
-                const data = prisma.dailyActivity.createMany.mock.calls[0][0].data;
+                const data = prisma.dailyActivity.upsert.mock.calls.map((c) => c[0].create);
                 expect(data).toHaveLength(1);
                 expect(data[0].metadata.fileId).toBe('shared3');
-                expect(data[0].activityType).toBe('document');
+                expect(data[0].activityType).toBe('edit');
+                expect(data[0].fileType).toBe('document');
             });
 
             test('enrichDriveActivitySummary: 403 en archivo compartido → conserva datos originales y deriva app del mimeType', async () => {
@@ -947,12 +981,9 @@ describe('Drive Activity Service', () => {
                         ],
                     },
                 });
-                prisma.dailyActivity.createMany.mockResolvedValue({ count: 1 });
-
                 await persistDriveActivities(mockUserId, 'token', startTime, endTime);
 
-                const data = prisma.dailyActivity.createMany.mock.calls[0][0].data;
-                expect(data).toHaveLength(1);
+                expect(prisma.dailyActivity.upsert.mock.calls).toHaveLength(1);
             });
 
             test('Mismo archivo, timestamps iguales: startTime = endTime - buffer (duración mínima = buffer)', async () => {
@@ -966,18 +997,15 @@ describe('Drive Activity Service', () => {
                         ],
                     },
                 });
-                prisma.dailyActivity.createMany.mockResolvedValue({ count: 1 });
 
                 await persistDriveActivities(mockUserId, 'token', startTime, endTime);
 
-                const record = prisma.dailyActivity.createMany.mock.calls[0][0].data[0];
+                const record = prisma.dailyActivity.upsert.mock.calls[0][0].create;
                 expect(record.startTime).toEqual(new Date(tsMs));
                 expect(record.endTime).toEqual(new Date(tsMs + WORK_BUFFER_MS));
             });
 
             test('Actividad consolidada con timeRange que ya cubre la sesión de edición simultánea: usa startTime del rango', async () => {
-                // La API devuelve un timeRange cuando consolida ediciones continuas
-                // de varios actores en una ventana de tiempo.
                 const rangeStart = '2026-05-26T10:00:00.000Z';
                 const rangeEnd   = '2026-05-26T10:30:00.000Z';
                 mockActivityQuery.mockResolvedValue({
@@ -993,14 +1021,13 @@ describe('Drive Activity Service', () => {
                         }],
                     },
                 });
-                prisma.dailyActivity.createMany.mockResolvedValue({ count: 1 });
 
                 await persistDriveActivities(mockUserId, 'token', startTime, endTime);
 
-                const record = prisma.dailyActivity.createMany.mock.calls[0][0].data[0];
-                // Una sola acción (el timeRange): startTime = rangeStart, endTime = rangeStart + buffer
+                const record = prisma.dailyActivity.upsert.mock.calls[0][0].create;
                 expect(record.startTime).toEqual(new Date(rangeStart));
-                expect(record.endTime).toEqual(new Date(new Date(rangeStart).getTime() + WORK_BUFFER_MS));
+                // La API trajo endTime explícito en el rango: se usa tal cual.
+                expect(record.endTime).toEqual(new Date(rangeEnd));
             });
 
             test('Dos archivos distintos editados al mismo timestamp: generan dos registros independientes con el mismo startTime', async () => {
@@ -1013,24 +1040,18 @@ describe('Drive Activity Service', () => {
                         ],
                     },
                 });
-                prisma.dailyActivity.createMany.mockResolvedValue({ count: 2 });
 
                 await persistDriveActivities(mockUserId, 'token', startTime, endTime);
 
-                const data = prisma.dailyActivity.createMany.mock.calls[0][0].data;
+                const data = prisma.dailyActivity.upsert.mock.calls.map((c) => c[0].create);
                 expect(data).toHaveLength(2);
-                // Ambos arrancaron al mismo tiempo
                 expect(data[0].startTime).toEqual(new Date(ts));
                 expect(data[1].startTime).toEqual(new Date(ts));
-                // Pero son registros distintos
                 const fileIds = data.map((r) => r.metadata.fileId).sort();
                 expect(fileIds).toEqual(['doc1', 'sheet1']);
             });
 
             test('Mismo archivo: edición propia + edición simultánea de otro usuario → un solo registro que abarca ambas acciones', async () => {
-                // El usuario edita a las 10:00 y otro actor edita el mismo archivo a las
-                // 10:20. La API puede devolver dos actividades separadas (una por actor)
-                // o una consolidada. En cualquier caso se agrupan bajo el mismo fileId.
                 const t1 = '2026-05-26T10:00:00.000Z';
                 const t2 = '2026-05-26T10:20:00.000Z';
                 mockActivityQuery.mockResolvedValue({
@@ -1041,14 +1062,14 @@ describe('Drive Activity Service', () => {
                         ],
                     },
                 });
-                prisma.dailyActivity.createMany.mockResolvedValue({ count: 1 });
 
                 await persistDriveActivities(mockUserId, 'token', startTime, endTime);
 
-                const data = prisma.dailyActivity.createMany.mock.calls[0][0].data;
+                const data = prisma.dailyActivity.upsert.mock.calls.map((c) => c[0].create);
                 expect(data).toHaveLength(1);
                 expect(data[0].startTime).toEqual(new Date(t1));
-                expect(data[0].endTime).toEqual(new Date(new Date(t2).getTime() + WORK_BUFFER_MS));
+                // Misma sesión (gap 20 min ≤ 30): endTime cae en la última acción.
+                expect(data[0].endTime).toEqual(new Date(t2));
             });
         });
     });
