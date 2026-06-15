@@ -279,37 +279,69 @@ const getDriveActivitiesForDay = async (refreshToken, timeMin, timeMax) => {
         ]);
 
         const editNoneIdx = 1 + NON_EDIT_ACTION_FILTERS.length;
-        const editNoneActivities = allResults[editNoneIdx];
+        // none edit activities: query de Mi unidad + shared file queries
+        const sharedFileStartIdx = editNoneIdx + 1 + sharedDriveIds.length;
+        const noneEditActivities = [
+            ...allResults[editNoneIdx],
+            // shared file none queries también pueden tener edits
+            ...allResults.slice(sharedFileStartIdx).flat().filter(a =>
+                Object.keys(a.primaryActionDetail || {})[0] === 'edit'
+            ),
+        ];
 
-        // Archivos con edits en la query none: sus eventos legacy de edit se descartan
+        // Archivos con edits en queries none: sus eventos legacy de edit se descartan
         // para no inflar la duración mezclando el timeRange grande de legacy con los
         // intervalos granulares de none.
         const filesWithNoneEdits = new Set(
-            editNoneActivities
+            noneEditActivities
                 .map(a => a.targets?.[0]?.driveItem?.name ?? a.targets?.[0]?.fileComment?.parent?.name)
                 .filter(Boolean)
         );
 
-        // Deduplicar todo por fileId + actionType + startTimestamp.
-        const seen = new Set();
-        const dedup = (activity) => {
-            const actionType = Object.keys(activity.primaryActionDetail || {})[0];
-            const target = activity.targets?.[0]?.driveItem ?? activity.targets?.[0]?.fileComment?.parent;
+        // Deduplicar todos los resultados legacy (sin edits de archivos en filesWithNoneEdits).
+        const legacySeen = new Set();
+        const legacyDeduped = allResults.slice(0, sharedFileStartIdx).flat().filter(a => {
+            const actionType = Object.keys(a.primaryActionDetail || {})[0];
+            const target = a.targets?.[0]?.driveItem ?? a.targets?.[0]?.fileComment?.parent;
             const fileId = target?.name;
-            const ts = activity.timeRange?.startTime ?? activity.timestamp;
+            const ts = a.timeRange?.startTime ?? a.timestamp;
             if (!fileId || !actionType || !ts) return false;
-
-            // Descartar edits legacy de archivos que ya tienen eventos none.
             if (actionType === 'edit' && filesWithNoneEdits.has(fileId)) return false;
-
             const key = `${fileId}__${actionType}__${ts}`;
-            if (seen.has(key)) return false;
-            seen.add(key);
+            if (legacySeen.has(key)) return false;
+            legacySeen.add(key);
             return true;
-        };
+        });
 
-        const all = allResults.flat().filter(dedup);
-        return all;
+        // Deduplicar los eventos none de edición (provienen de múltiples queries).
+        const noneSeen = new Set();
+        const noneDeduped = noneEditActivities.filter(a => {
+            const target = a.targets?.[0]?.driveItem ?? a.targets?.[0]?.fileComment?.parent;
+            const fileId = target?.name;
+            const ts = a.timeRange?.startTime ?? a.timestamp;
+            if (!fileId || !ts) return false;
+            const key = `${fileId}__edit__${ts}`;
+            if (noneSeen.has(key)) return false;
+            noneSeen.add(key);
+            return true;
+        });
+
+        // Agregar non-edit events de shared file queries (también usan none consolidation).
+        const sharedNonEditSeen = new Set([...legacySeen]);
+        const sharedNonEditDeduped = allResults.slice(sharedFileStartIdx).flat().filter(a => {
+            const actionType = Object.keys(a.primaryActionDetail || {})[0];
+            if (actionType === 'edit') return false; // ya incluidos en noneDeduped
+            const target = a.targets?.[0]?.driveItem ?? a.targets?.[0]?.fileComment?.parent;
+            const fileId = target?.name;
+            const ts = a.timeRange?.startTime ?? a.timestamp;
+            if (!fileId || !actionType || !ts) return false;
+            const key = `${fileId}__${actionType}__${ts}`;
+            if (sharedNonEditSeen.has(key)) return false;
+            sharedNonEditSeen.add(key);
+            return true;
+        });
+
+        return [...legacyDeduped, ...noneDeduped, ...sharedNonEditDeduped];
     } catch (error) {
         logger.error('Error al obtener actividades de Drive', { message: error.message, code: error.code });
         throw new Error('Error al obtener actividades de Drive', { cause: error });
