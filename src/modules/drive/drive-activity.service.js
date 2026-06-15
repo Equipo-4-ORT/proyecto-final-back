@@ -250,7 +250,10 @@ const buildWorkEstimates = (byFile, userId, windowDate) => {
         const lastMs  = data.timestampsMs.reduce((a, b) => Math.max(a, b));
 
         const startTime = new Date(firstMs);
-        const endTime   = new Date(Math.min(lastMs + WORK_BUFFER_MS, firstMs + MAX_WORK_DURATION_MS));
+        // endTime = la sesión real (lastMs) o mínimo 5 min desde el inicio, lo que sea mayor.
+        // Tope de 2 hs para evitar que acciones muy separadas inflen el timeline.
+        const rawEnd = Math.max(lastMs, firstMs + WORK_BUFFER_MS);
+        const endTime = new Date(Math.min(rawEnd, firstMs + MAX_WORK_DURATION_MS));
 
         // externalId incluye actionType para que cada acción sobre el mismo archivo
         // genere un registro independiente en BD.
