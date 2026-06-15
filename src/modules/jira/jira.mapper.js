@@ -316,18 +316,15 @@ const mapCreationToActivity = (userId, issue, myAccountId, dateStart, dateEnd) =
 const mapWorklogsToActivities = (userId, issue, worklogs, myAccountId, dateStart, dateEnd, defaultDuration) => {
     if (!Array.isArray(worklogs)) return [];
 
-    const defaultDurationSeconds = (defaultDuration || 8) * 3600; // defaultDuration viene en horas, lo convertimos a segundos
+    const defaultDurationSeconds = (defaultDuration || 60) * 60; // defaultDuration viene en minutos, lo convertimos a segundos
     return worklogs
         .filter((w) => isMine(w.author, myAccountId) && isWithinWindow(w.started, dateStart, dateEnd))
         .map((w) => {
             const startedMs = ms(w.started);
-           const originalSeconds = Number(w.timeSpentSeconds) || 0;
-            let cappedSeconds = originalSeconds;
-            if (originalSeconds > defaultDurationSeconds) {
-                cappedSeconds = defaultDurationSeconds;
-            }
+            const originalSeconds = Number(w.timeSpentSeconds) || 0; // Jira siempre devuelve la duración en segundos
+            const cappedSeconds = originalSeconds > defaultDurationSeconds ? defaultDurationSeconds : originalSeconds;
 
-            const endMs = startedMs + (cappedSeconds * 1000);
+            const endMs = startedMs + cappedSeconds * 1000;
             const title = buildActivityTitle({ actionType: ACTIVITY_TYPE.WORKLOG, issue, durationSeconds: cappedSeconds });
             return buildActivity({
                 userId,
@@ -336,10 +333,11 @@ const mapWorklogsToActivities = (userId, issue, worklogs, myAccountId, dateStart
                 timestamp: w.started,
                 endTimestamp: endMs,
                 title,
-                extraMetadata: { 
-                    time_spent_seconds: cappedSeconds, 
+                extraMetadata: {
+                    time_spent_seconds: cappedSeconds,
                     original_time_spent: originalSeconds,
-                     worklog_id: w.id ?? null },
+                    worklog_id: w.id ?? null,
+                },
             });
         });
 };
