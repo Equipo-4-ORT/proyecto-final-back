@@ -173,51 +173,37 @@ const getDriveActivitiesForDay = async (refreshToken, timeMin, timeMax) => {
         const driveactivity = google.driveactivity({ version: 'v2', auth });
         const timeFilter = `time >= "${timeMin}" AND time < "${timeMax}"`;
 
-        // Query principal: todas las acciones con consolidación legacy.
-        // La consolidación agrupa acciones del mismo tipo sobre el mismo archivo,
-        // pero puede suprimir permissionChange cuando coexiste con create/edit.
-        const mainActivities = await queryDriveActivityPaginated(driveactivity, {
-            filter: timeFilter,
-            consolidationStrategy: { legacy: {} },
-            pageSize: 100,
-        });
+        // Las 2 queries corren en paralelo: main con consolidación legacy,
+        // más query dedicada para permissionChange que la consolidación legacy
+        // puede suprimir cuando coexiste con acciones más relevantes.
+        const [mainActivities, permissionActivities] = await Promise.all([
+            queryDriveActivityPaginated(driveactivity, {
+                filter: timeFilter,
+                consolidationStrategy: { legacy: {} },
+                pageSize: 100,
+            }),
+            queryDriveActivityPaginated(driveactivity, {
+                filter: `${timeFilter} AND detail.action_detail_case:PERMISSION_CHANGE`,
+                consolidationStrategy: { none: {} },
+                pageSize: 100,
+            }),
+        ]);
 
-        // Query separada para permissionChange: la consolidación legacy lo omite
-        // cuando hay otras acciones más relevantes sobre el mismo archivo.
-        const permissionActivities = await queryDriveActivityPaginated(driveactivity, {
-            filter: `${timeFilter} AND detail.action_detail_case:PERMISSION_CHANGE`,
-            consolidationStrategy: { none: {} },
-            pageSize: 100,
-        });
-
-        // Query separada para edit: la consolidación legacy puede suprimirlo
-        // cuando coexiste con create/rename sobre el mismo archivo.
-        const editActivities = await queryDriveActivityPaginated(driveactivity, {
-            filter: `${timeFilter} AND detail.action_detail_case:EDIT`,
-            consolidationStrategy: { none: {} },
-            pageSize: 100,
-        });
-
-        // Clave de dedup: nombre del archivo + instante de inicio (timestamp o timeRange.startTime).
-        const activityKey = (a) => {
-            const name = a.targets?.[0]?.driveItem?.name ?? '';
-            const ts   = a.timestamp ?? a.timeRange?.startTime ?? '';
-            return `${name}_${ts}`;
-        };
-
-        const mainKeysByAction = (actionName) => new Set(
+        // Si la query principal ya capturó un permissionChange para un archivo,
+        // no agregamos los de la query separada para ese archivo.
+        const mainPermissionFileIds = new Set(
             mainActivities
-                .filter(a => Object.keys(a.primaryActionDetail || {})[0] === actionName)
-                .map(activityKey)
+                .filter(a => Object.keys(a.primaryActionDetail || {})[0] === 'permissionChange')
+                .map(a => a.targets?.[0]?.driveItem?.name)
+                .filter(Boolean)
         );
 
-        const mainPermissionKeys = mainKeysByAction('permissionChange');
-        const mainEditKeys = mainKeysByAction('edit');
+        const newPermissions = permissionActivities.filter(a => {
+            const fileId = a.targets?.[0]?.driveItem?.name;
+            return fileId && !mainPermissionFileIds.has(fileId);
+        });
 
-        const newPermissions = permissionActivities.filter(a => !mainPermissionKeys.has(activityKey(a)));
-        const newEdits = editActivities.filter(a => !mainEditKeys.has(activityKey(a)));
-
-        return [...mainActivities, ...newPermissions, ...newEdits];
+        return [...mainActivities, ...newPermissions];
     } catch (error) {
         logger.error('Error al obtener actividades de Drive', { message: error.message, code: error.code });
         throw new Error('Error al obtener actividades de Drive', { cause: error });
@@ -257,8 +243,14 @@ const buildWorkEstimates = (byFile, userId, windowDate) => {
         const title = data.title ? `${actionLabel} ${data.title}` : actionLabel;
 
         if (INSTANT_ACTIONS.has(data.actionType)) {
-            // Cada intervalo genera su propio registro de duración fija (5 min).
-            const sorted = [...data.intervals].sort((a, b) => a.startMs - b.startMs);
+            // Deduplicar por startMs: la API puede devolver el mismo evento dos veces.
+            const seen = new Set();
+            const unique = data.intervals.filter(({ startMs }) => {
+                if (seen.has(startMs)) return false;
+                seen.add(startMs);
+                return true;
+            });
+            const sorted = unique.sort((a, b) => a.startMs - b.startMs);
             sorted.forEach(({ startMs }, idx) => {
                 const startTime = new Date(startMs);
                 const endTime   = new Date(startMs + WORK_BUFFER_MS);
