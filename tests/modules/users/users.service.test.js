@@ -5,7 +5,14 @@ jest.mock('../../../src/shared/database/prisma', () => ({
     },
 }));
 
-const { loginGoogleUser, UnauthorizedUserError } = require('../../../src/modules/users/users.service');
+const {
+    loginGoogleUser,
+    UnauthorizedUserError,
+    getUserSettings,
+    updateUserSettings,
+    UserValidationError,
+    UserNotFoundError,
+} = require('../../../src/modules/users/users.service');
 const prisma = require('../../../src/shared/database/prisma');
 
 const BASE_GOOGLE_DATA = {
@@ -125,5 +132,92 @@ describe('Servicio de Usuarios (loginGoogleUser)', () => {
         prisma.user.update.mockRejectedValue(new Error('Conexión perdida'));
 
         await expect(loginGoogleUser(BASE_GOOGLE_DATA, null)).rejects.toThrow('No se pudo actualizar el usuario');
+    });
+});
+
+describe('Servicio de Usuarios (getUserSettings)', () => {
+    test('Lanza UserNotFoundError si el usuario no existe', async () => {
+        prisma.user.findUnique.mockResolvedValue(null);
+
+        await expect(getUserSettings('uuid-1')).rejects.toThrow(UserNotFoundError);
+    });
+
+    test('Convierte defaultDuration de minutos (BD) a horas (API)', async () => {
+        prisma.user.findUnique.mockResolvedValue({
+            workStartTime: '09:00',
+            workEndTime: '18:00',
+            avoidOverlaps: false,
+            defaultDuration: 120, // minutos en la BD
+        });
+
+        const settings = await getUserSettings('uuid-1');
+
+        expect(settings.defaultDuration).toBe(2); // horas
+    });
+});
+
+describe('Servicio de Usuarios (updateUserSettings - defaultDuration)', () => {
+    const updatedRow = {
+        workStartTime: '09:00',
+        workEndTime: '18:00',
+        avoidOverlaps: false,
+        defaultDuration: 120,
+    };
+
+    test('Convierte horas a minutos antes de persistir', async () => {
+        prisma.user.update.mockResolvedValue(updatedRow);
+
+        await updateUserSettings('uuid-1', { defaultDuration: 2 });
+
+        expect(prisma.user.update).toHaveBeenCalledWith(
+            expect.objectContaining({
+                data: { defaultDuration: 120 }, // 2 h -> 120 min
+            })
+        );
+    });
+
+    test('Acepta el mínimo (1 hora = 60 min)', async () => {
+        prisma.user.update.mockResolvedValue({ ...updatedRow, defaultDuration: 60 });
+
+        await updateUserSettings('uuid-1', { defaultDuration: 1 });
+
+        expect(prisma.user.update.mock.calls[0][0].data.defaultDuration).toBe(60);
+    });
+
+    test('Acepta el máximo (24 horas = 1440 min)', async () => {
+        prisma.user.update.mockResolvedValue({ ...updatedRow, defaultDuration: 1440 });
+
+        await updateUserSettings('uuid-1', { defaultDuration: 24 });
+
+        expect(prisma.user.update.mock.calls[0][0].data.defaultDuration).toBe(1440);
+    });
+
+    test('Devuelve defaultDuration en horas', async () => {
+        prisma.user.update.mockResolvedValue(updatedRow);
+
+        const result = await updateUserSettings('uuid-1', { defaultDuration: 2 });
+
+        expect(result.defaultDuration).toBe(2);
+    });
+
+    test('Rechaza 0 horas (menor al mínimo)', async () => {
+        await expect(
+            updateUserSettings('uuid-1', { defaultDuration: 0 })
+        ).rejects.toThrow(UserValidationError);
+        expect(prisma.user.update).not.toHaveBeenCalled();
+    });
+
+    test('Rechaza 25 horas (mayor al máximo)', async () => {
+        await expect(
+            updateUserSettings('uuid-1', { defaultDuration: 25 })
+        ).rejects.toThrow(UserValidationError);
+        expect(prisma.user.update).not.toHaveBeenCalled();
+    });
+
+    test('Rechaza valores no enteros (doubles)', async () => {
+        await expect(
+            updateUserSettings('uuid-1', { defaultDuration: 1.5 })
+        ).rejects.toThrow(UserValidationError);
+        expect(prisma.user.update).not.toHaveBeenCalled();
     });
 });
