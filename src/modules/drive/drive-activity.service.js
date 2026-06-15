@@ -242,39 +242,84 @@ const getDriveActivitiesForDay = async (refreshToken, timeMin, timeMax) => {
  * @param {string} windowDate - Fecha de la ventana de sync en formato YYYY-MM-DD (para el externalId).
  * @returns {Array<object>} Registros listos para createMany en DailyActivity.
  */
+// Gap máximo entre timestamps para considerarlos parte de la misma sesión (para edit/comment).
+const SESSION_GAP_MS = 30 * 60 * 1000; // 30 min
+
+// Acciones instantáneas: cada ocurrencia es un registro fijo de WORK_BUFFER_MS (5 min),
+// sin importar cuánto tiempo pasó entre ellas.
+const INSTANT_ACTIONS = new Set(['create', 'rename', 'delete', 'move', 'restore', 'permissionChange']);
+
 const buildWorkEstimates = (byFile, userId, windowDate) => {
     const records = [];
 
     for (const [, data] of byFile) {
-        const firstMs = data.timestampsMs.reduce((a, b) => Math.min(a, b));
-        const lastMs  = data.timestampsMs.reduce((a, b) => Math.max(a, b));
-
-        const startTime = new Date(firstMs);
-        // endTime = la sesión real (lastMs) o mínimo 5 min desde el inicio, lo que sea mayor.
-        // Tope de 2 hs para evitar que acciones muy separadas inflen el timeline.
-        const rawEnd = Math.max(lastMs, firstMs + WORK_BUFFER_MS);
-        const endTime = new Date(Math.min(rawEnd, firstMs + MAX_WORK_DURATION_MS));
-
-        // externalId incluye actionType para que cada acción sobre el mismo archivo
-        // genere un registro independiente en BD.
-        const externalId = `file_${data.fileId}_${data.actionType}_${windowDate}`;
-
         const fileType = MIME_TO_ACTIVITY_TYPE[data.mimeType] ?? 'file';
-
         const actionLabel = ACTION_LABELS[data.actionType] ?? data.actionType;
         const title = data.title ? `${actionLabel} ${data.title}` : actionLabel;
 
-        records.push({
-            userId,
-            source: 'drive',
-            activityType: data.actionType,
-            fileType,
-            externalId,
-            startTime,
-            endTime,
-            title,
-            metadata: { title, fileId: data.fileId, mimeType: data.mimeType },
-        });
+        if (INSTANT_ACTIONS.has(data.actionType)) {
+            // Cada intervalo genera su propio registro de duración fija (5 min).
+            const sorted = [...data.intervals].sort((a, b) => a.startMs - b.startMs);
+            sorted.forEach(({ startMs }, idx) => {
+                const startTime = new Date(startMs);
+                const endTime   = new Date(startMs + WORK_BUFFER_MS);
+                const suffix = sorted.length > 1 ? `_s${idx + 1}` : '';
+                const externalId = `file_${data.fileId}_${data.actionType}_${windowDate}${suffix}`;
+
+                records.push({
+                    userId,
+                    source: 'drive',
+                    activityType: data.actionType,
+                    fileType,
+                    externalId,
+                    startTime,
+                    endTime,
+                    title,
+                    metadata: { title, fileId: data.fileId, mimeType: data.mimeType },
+                });
+            });
+        } else {
+            // Acciones continuas (edit, comment): agrupar por sesión según SESSION_GAP_MS.
+            // Si la API provee endTime en el intervalo, se usa directamente.
+            const sorted = [...data.intervals].sort((a, b) => a.startMs - b.startMs);
+            const sessions = [];
+            let current = [sorted[0]];
+            for (let i = 1; i < sorted.length; i++) {
+                if (sorted[i].startMs - sorted[i - 1].startMs > SESSION_GAP_MS) {
+                    sessions.push(current);
+                    current = [];
+                }
+                current.push(sorted[i]);
+            }
+            sessions.push(current);
+
+            sessions.forEach((session, idx) => {
+                const firstMs = session[0].startMs;
+                // Usar el endMs más tardío del grupo si la API lo provee;
+                // si no, caer al startMs más tardío + buffer.
+                const lastStartMs = session[session.length - 1].startMs;
+                const lastEndMs   = session.reduce((max, iv) => iv.endMs ? Math.max(max, iv.endMs) : max, 0);
+                const sessionEnd = lastEndMs > 0 ? lastEndMs : lastStartMs;
+                const rawEnd = Math.max(sessionEnd, firstMs + WORK_BUFFER_MS);
+
+                const startTime = new Date(firstMs);
+                const endTime   = new Date(Math.min(rawEnd, firstMs + MAX_WORK_DURATION_MS));
+                const suffix = sessions.length > 1 ? `_s${idx + 1}` : '';
+                const externalId = `file_${data.fileId}_${data.actionType}_${windowDate}${suffix}`;
+
+                records.push({
+                    userId,
+                    source: 'drive',
+                    activityType: data.actionType,
+                    fileType,
+                    externalId,
+                    startTime,
+                    endTime,
+                    title,
+                    metadata: { title, fileId: data.fileId, mimeType: data.mimeType },
+                });
+            });
+        }
     }
 
     return records;
@@ -341,18 +386,21 @@ const persistDriveActivities = async (userId, refreshToken, startTime, endTime) 
         if (!fileId) continue;
 
         // La API devuelve timestamp (evento puntual) o timeRange (sesión de trabajo).
-        // Para la estimación usamos el instante de inicio de la acción en ambos casos.
-        const tsMs = activity.timeRange
+        // Guardamos inicio y fin explícito cuando está disponible.
+        const startMs = activity.timeRange
             ? new Date(activity.timeRange.startTime).getTime()
             : new Date(activity.timestamp).getTime();
+        const endMs = activity.timeRange?.endTime
+            ? new Date(activity.timeRange.endTime).getTime()
+            : null;
 
         // Clave compuesta: fileId + actionType → un registro por acción por archivo
         const key = `${fileId}__${actionType}`;
         if (!byFile.has(key)) {
-            byFile.set(key, { fileId, actionType, mimeType, title, timestampsMs: [] });
+            byFile.set(key, { fileId, actionType, mimeType, title, intervals: [] });
         }
         const entry = byFile.get(key);
-        entry.timestampsMs.push(tsMs);
+        entry.intervals.push({ startMs, endMs });
         if (!entry.title && title) entry.title = title;
     }
 
