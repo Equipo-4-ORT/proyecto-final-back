@@ -43,11 +43,13 @@ const getActivities = async (req, res) => {
 const postActivity = async (req, res) => {
   const { activityType, startTime, endTime, metadata } = req.body;
 
-  if (!activityType || !startTime || !endTime) {
-    return res.status(400).json({ error: 'Bad Request', message: 'activityType, startTime y endTime son requeridos' });
+  if (!activityType || !startTime) {
+    return res.status(400).json({ error: 'Bad Request', message: 'activityType y startTime son requeridos' });
   }
 
-  if (new Date(startTime) >= new Date(endTime)) {
+  // endTime es opcional: si no viene, el servicio lo deriva de la duración por
+  // defecto del usuario (defaultDuration). Solo validamos el orden si vino.
+  if (endTime && new Date(startTime) >= new Date(endTime)) {
     return res.status(400).json({ error: 'Bad Request', message: 'startTime debe ser anterior a endTime' });
   }
 

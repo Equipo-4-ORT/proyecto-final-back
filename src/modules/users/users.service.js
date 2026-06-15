@@ -76,7 +76,9 @@ const getUserSettings = async (userId) => {
 
   if (!user) throw new UserNotFoundError();
 
-  return user;
+  // La BD guarda defaultDuration en minutos, pero el contrato de la API habla
+  // en horas: convertimos antes de responder.
+  return { ...user, defaultDuration: user.defaultDuration / 60 };
 };
 
 const updateUserSettings = async (userId, settingsData) => {
@@ -107,10 +109,18 @@ const updateUserSettings = async (userId, settingsData) => {
     dataToUpdate.avoidOverlaps = avoidOverlaps;
   }
   if (defaultDuration !== undefined) {
-    if (!Number.isInteger(defaultDuration) || defaultDuration <= 0 || defaultDuration > 180) {
-      throw new UserValidationError('La duración por defecto debe ser un número entero de minutos entre 1 y 180.');
+    // El front envía horas (entero). Convertimos a minutos para persistir y
+    // validamos el rango EN MINUTOS: 60 (1 h) a 1440 (24 h).
+    if (!Number.isInteger(defaultDuration)) {
+      throw new UserValidationError('La duración por defecto debe ser un número entero de horas.');
     }
-    dataToUpdate.defaultDuration = defaultDuration;
+    const durationMinutes = defaultDuration * 60;
+    const MIN_MINUTES = 60; // 1 hora
+    const MAX_MINUTES = 24 * 60; // 24 horas
+    if (durationMinutes < MIN_MINUTES || durationMinutes > MAX_MINUTES) {
+      throw new UserValidationError('La duración por defecto debe estar entre 1 y 24 horas.');
+    }
+    dataToUpdate.defaultDuration = durationMinutes;
   }
 
   if (Object.keys(dataToUpdate).length === 0) {
@@ -127,7 +137,8 @@ const updateUserSettings = async (userId, settingsData) => {
     }
   });
 
-  return updatedUser;
+  // Devolvemos defaultDuration en horas, igual que getUserSettings.
+  return { ...updatedUser, defaultDuration: updatedUser.defaultDuration / 60 };
 };
 
 
