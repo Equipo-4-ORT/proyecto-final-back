@@ -61,6 +61,18 @@ const MIME_TO_ACTIVITY_TYPE = {
     'application/vnd.google-apps.script':       'script',
 };
 
+const ACTION_LABELS = {
+    edit:             'Editó',
+    create:           'Creó',
+    rename:           'Renombró',
+    permissionChange: 'Cambió permisos de',
+    comment:          'Comentó en',
+    suggestion:       'Sugirió en',
+    move:             'Movió',
+    delete:           'Eliminó',
+    restore:          'Restauró',
+};
+
 // Tope de llamadas simultáneas a la Drive API al enriquecer el resumen. Evita
 // gatillar rate limits (userRateLimitExceeded) en días con muchos archivos.
 const ENRICH_CONCURRENCY = 10;
@@ -246,15 +258,18 @@ const buildWorkEstimates = (byFile, userId, windowDate) => {
 
         const fileType = MIME_TO_ACTIVITY_TYPE[data.mimeType] ?? 'file';
 
+        const actionLabel = ACTION_LABELS[data.actionType] ?? data.actionType;
+        const title = data.title ? `${actionLabel} ${data.title}` : actionLabel;
+
         records.push({
             userId,
             source: 'drive',
-            activityType: data.actionType,  // qué se hizo: create, rename, permissionChange…
-            fileType,                        // qué tipo de archivo: document, spreadsheet…
+            activityType: data.actionType,
+            fileType,
             externalId,
             startTime,
             endTime,
-            title: data.title,
+            title,
             metadata: { title: data.title, fileId: data.fileId, mimeType: data.mimeType },
         });
     }
