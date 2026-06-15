@@ -173,37 +173,52 @@ const getDriveActivitiesForDay = async (refreshToken, timeMin, timeMax) => {
         const driveactivity = google.driveactivity({ version: 'v2', auth });
         const timeFilter = `time >= "${timeMin}" AND time < "${timeMax}"`;
 
-        // Las 2 queries corren en paralelo: main con consolidación legacy,
-        // más query dedicada para permissionChange que la consolidación legacy
-        // puede suprimir cuando coexiste con acciones más relevantes.
-        const [mainActivities, permissionActivities] = await Promise.all([
+        // Una query por cada tipo de acción relevante con consolidación legacy.
+        // La query principal devuelve solo la acción "primaria" por archivo;
+        // las queries dedicadas recuperan las acciones que quedaron suprimidas.
+        const ACTION_FILTERS = [
+            'EDIT',
+            'CREATE',
+            'RENAME',
+            'COMMENT',
+            'PERMISSION_CHANGE',
+            'MOVE',
+            'DELETE',
+        ];
+
+        const [mainActivities, ...perActionResults] = await Promise.all([
             queryDriveActivityPaginated(driveactivity, {
                 filter: timeFilter,
                 consolidationStrategy: { legacy: {} },
                 pageSize: 100,
             }),
-            queryDriveActivityPaginated(driveactivity, {
-                filter: `${timeFilter} AND detail.action_detail_case:PERMISSION_CHANGE`,
-                consolidationStrategy: { none: {} },
-                pageSize: 100,
-            }),
+            ...ACTION_FILTERS.map(action =>
+                queryDriveActivityPaginated(driveactivity, {
+                    filter: `${timeFilter} AND detail.action_detail_case:${action}`,
+                    consolidationStrategy: { legacy: {} },
+                    pageSize: 100,
+                })
+            ),
         ]);
 
-        // Si la query principal ya capturó un permissionChange para un archivo,
-        // no agregamos los de la query separada para ese archivo.
-        const mainPermissionFileIds = new Set(
-            mainActivities
-                .filter(a => Object.keys(a.primaryActionDetail || {})[0] === 'permissionChange')
-                .map(a => a.targets?.[0]?.driveItem?.name)
-                .filter(Boolean)
+        // Claves fileId+actionType ya presentes en la query principal.
+        const mainKeys = new Set(
+            mainActivities.map(a => {
+                const actionType = Object.keys(a.primaryActionDetail || {})[0];
+                const fileId = a.targets?.[0]?.driveItem?.name;
+                return `${fileId}__${actionType}`;
+            }).filter(k => !k.startsWith('undefined'))
         );
 
-        const newPermissions = permissionActivities.filter(a => {
+        // Agregar solo los que la query principal no trajo para ese fileId+actionType.
+        const extraActivities = perActionResults.flat().filter(a => {
+            const actionType = Object.keys(a.primaryActionDetail || {})[0];
             const fileId = a.targets?.[0]?.driveItem?.name;
-            return fileId && !mainPermissionFileIds.has(fileId);
+            if (!fileId || !actionType) return false;
+            return !mainKeys.has(`${fileId}__${actionType}`);
         });
 
-        return [...mainActivities, ...newPermissions];
+        return [...mainActivities, ...extraActivities];
     } catch (error) {
         logger.error('Error al obtener actividades de Drive', { message: error.message, code: error.code });
         throw new Error('Error al obtener actividades de Drive', { cause: error });
@@ -240,7 +255,7 @@ const buildWorkEstimates = (byFile, userId, windowDate) => {
     for (const [, data] of byFile) {
         const fileType = MIME_TO_ACTIVITY_TYPE[data.mimeType] ?? 'file';
         const actionLabel = ACTION_LABELS[data.actionType] ?? data.actionType;
-        const title = data.title ? `${actionLabel} ${data.title}` : actionLabel;
+        const title = data.title ? `${actionLabel} "${data.title}"` : actionLabel;
 
         if (INSTANT_ACTIONS.has(data.actionType)) {
             // Deduplicar por startMs: la API puede devolver el mismo evento dos veces.
