@@ -7,6 +7,7 @@ const {
 const prisma = require('../../../src/shared/database/prisma');
 // Asegurate de que esta ruta coincida con la ubicación real de tu index de adapters
 const { getAdapter } = require('../../../src/modules/ai/adapters');
+const { createReportSheet } = require('../../../src/modules/reports/reports.sheet');
 
 // 1. Mockeamos Prisma con todas las funciones que usan ambas suites
 jest.mock('../../../src/shared/database/prisma', () => ({
@@ -28,6 +29,12 @@ jest.mock('../../../src/shared/database/prisma', () => ({
 // 2. Mockeamos el Adapter de IA
 jest.mock('../../../src/modules/ai/adapters', () => ({
   getAdapter: jest.fn(),
+}));
+
+// 3. Mockeamos el helper del Sheet. Además de aislar la lógica del Drive, evita
+//    importar `googleapis` (que no carga en el entorno de jest sin mock).
+jest.mock('../../../src/modules/reports/reports.sheet', () => ({
+  createReportSheet: jest.fn(),
 }));
 
 describe('Reports Service - getReportsHistory', () => {
@@ -95,6 +102,9 @@ describe('Report Service - generateReportForDate', () => {
   beforeEach(() => {
     // Default: usuario sin la validación de solapamientos habilitada.
     prisma.user.findUnique.mockResolvedValue({ avoidOverlaps: false });
+    // Default: la creación del Sheet no produce URL (no aplica salvo que el test la setee).
+    createReportSheet.mockResolvedValue(null);
+    prisma.report.update.mockResolvedValue({ id: 'report-1', status: 'PENDING' });
   });
 
   afterEach(() => {
@@ -142,6 +152,91 @@ describe('Report Service - generateReportForDate', () => {
     await expect(generateReportForDate(mockUser, validDate)).rejects.toThrow(
       '503 Service Unavailable',
     );
+  });
+
+  describe('Generación del Sheet en Drive', () => {
+    const mockAiOutput = { totalHours: 2, daySummary: 'Día productivo', rows: [] };
+    const sheetUrl = 'https://docs.google.com/spreadsheets/d/abc123/edit';
+
+    test('Crea el Sheet, persiste xlsxUrl y lo devuelve en la respuesta', async () => {
+      prisma.report.findFirst.mockResolvedValue(null);
+      prisma.dailyActivity.findMany.mockResolvedValue([{ id: 1 }]);
+      getAdapter.mockReturnValue({ generateSummary: jest.fn().mockResolvedValue(mockAiOutput) });
+      const savedReport = { id: 'report-1', status: 'PENDING', reportDate: new Date('2026-05-19') };
+      prisma.report.create.mockResolvedValue(savedReport);
+      createReportSheet.mockResolvedValue(sheetUrl);
+
+      const result = await generateReportForDate(mockUser, validDate);
+
+      expect(createReportSheet).toHaveBeenCalledWith(mockUser, savedReport, mockAiOutput);
+      expect(prisma.report.update).toHaveBeenCalledWith({
+        where: { id: 'report-1' },
+        data: { xlsxUrl: sheetUrl },
+      });
+      expect(result.xlsxUrl).toBe(sheetUrl);
+    });
+
+    test('Si la creación del Sheet falla, el reporte se genera con xlsxUrl null', async () => {
+      prisma.report.findFirst.mockResolvedValue(null);
+      prisma.dailyActivity.findMany.mockResolvedValue([{ id: 1 }]);
+      getAdapter.mockReturnValue({ generateSummary: jest.fn().mockResolvedValue(mockAiOutput) });
+      prisma.report.create.mockResolvedValue({ id: 'report-1', status: 'PENDING', reportDate: new Date('2026-05-19') });
+      createReportSheet.mockResolvedValue(null);
+
+      const result = await generateReportForDate(mockUser, validDate);
+
+      expect(result.message).toBe('Reporte generado exitosamente.');
+      expect(result.xlsxUrl).toBeNull();
+      // No se intenta persistir un xlsxUrl inexistente.
+      expect(prisma.report.update).not.toHaveBeenCalled();
+    });
+
+    test('Borrador PENDING con xlsxUrl null: reintenta crear el Sheet sin llamar a la IA', async () => {
+      const draft = {
+        id: 'report-1',
+        status: 'PENDING',
+        content: mockAiOutput,
+        xlsxUrl: null,
+        reportDate: new Date('2026-05-19'),
+      };
+      prisma.report.findFirst.mockResolvedValue(draft);
+      createReportSheet.mockResolvedValue(sheetUrl);
+
+      const result = await generateReportForDate(mockUser, validDate);
+
+      expect(getAdapter).not.toHaveBeenCalled();
+      expect(createReportSheet).toHaveBeenCalledWith(mockUser, draft, mockAiOutput);
+      expect(prisma.report.update).toHaveBeenCalledWith({
+        where: { id: 'report-1' },
+        data: { xlsxUrl: sheetUrl },
+      });
+      expect(result.xlsxUrl).toBe(sheetUrl);
+    });
+
+    test('Borrador PENDING que ya tiene xlsxUrl: no reintenta ni recrea el Sheet', async () => {
+      const draft = {
+        id: 'report-1',
+        status: 'PENDING',
+        content: mockAiOutput,
+        xlsxUrl: sheetUrl,
+        reportDate: new Date('2026-05-19'),
+      };
+      prisma.report.findFirst.mockResolvedValue(draft);
+
+      const result = await generateReportForDate(mockUser, validDate);
+
+      expect(createReportSheet).not.toHaveBeenCalled();
+      expect(result.xlsxUrl).toBe(sheetUrl);
+    });
+
+    test('Reporte SENT: devuelve el xlsxUrl existente sin crear Sheet', async () => {
+      prisma.report.findFirst.mockResolvedValue({ id: 'report-1', status: 'SENT', xlsxUrl: sheetUrl });
+
+      const result = await generateReportForDate(mockUser, validDate);
+
+      expect(createReportSheet).not.toHaveBeenCalled();
+      expect(result.xlsxUrl).toBe(sheetUrl);
+    });
   });
 
   describe('Validación de solapamientos (avoidOverlaps)', () => {

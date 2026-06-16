@@ -59,6 +59,12 @@ jest.mock('../../src/modules/calendar/calendar.service', () => ({
   syncCalendarActivities: jest.fn().mockResolvedValue({ synced: 0 }),
 }));
 
+// reports.sheet importa `googleapis` (que no carga en jest sin mock). Lo mockeamos
+// para que `app.js` se pueda montar; estas pruebas no ejercitan rutas de reportes.
+jest.mock('../../src/modules/reports/reports.sheet', () => ({
+  createReportSheet: jest.fn().mockResolvedValue(null),
+}));
+
 jest.mock('../../src/modules/jira/jira.service', () => ({
   initiateConnection: jest.fn().mockResolvedValue('http://jira-auth-url'),
   handleCallback:     jest.fn().mockResolvedValue({}),

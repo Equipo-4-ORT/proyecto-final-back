@@ -27,6 +27,10 @@ RULES FOR DESCRIPTIONS:
 - Every "description" (provided or inferred) MUST be concise and MUST NOT exceed 100 characters; truncate if needed.
 - If an activity lacks a "description" field in the input, infer a brief, professional one logically from its "title" and "activityType".
 
+RULES FOR SOURCE:
+- The "source" of each row MUST be copied verbatim from the input activity's "source" field. Do not invent or change it.
+- Valid values are exactly: "calendar", "drive", "jira", "manual".
+
 Expected JSON structure:
 {
   "daySummary": "2-3 sentence executive summary of the entire day",
@@ -36,7 +40,7 @@ Expected JSON structure:
       "startTime": "HH:mm",
       "endTime": "HH:mm",
       "duration": <number in minutes>,
-      "source": "calendar|drive|jira",
+      "source": "calendar|drive|jira|manual",
       "app": "Meet|Docs|Sheets|Drive|Jira|...",
       "activityType": "meeting|edit|transition|...",
       "title": "activity title",

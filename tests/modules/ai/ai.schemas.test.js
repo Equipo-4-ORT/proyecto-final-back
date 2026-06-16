@@ -50,6 +50,11 @@ describe('validateAIModuleOutput', () => {
         expect(() => validateAIModuleOutput(invalid)).toThrow(/AIModuleOutput validation failed/);
     });
 
+    test('acepta source "manual" (actividades creadas a mano)', () => {
+        const withManual = { ...validOutput, rows: [{ ...validRow, source: 'manual' }] };
+        expect(() => validateAIModuleOutput(withManual)).not.toThrow();
+    });
+
     test('lanza si totalHours no es positivo', () => {
         expect(() => validateAIModuleOutput({ ...validOutput, totalHours: 0 })).toThrow(/totalHours/);
     });

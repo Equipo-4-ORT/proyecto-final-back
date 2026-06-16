@@ -8,39 +8,12 @@
  * cuántas actividades nuevas se importaron).
  */
 
-const prisma = require('../../shared/database/prisma');
 const logger = require('../../shared/utils/logger');
 const { decrypt } = require('../../shared/utils/crypto');
+const { looksLikeGoogleAuthError, markGoogleReconnect } = require('../../shared/utils/googleAuthError');
 const calendarService = require('../calendar/calendar.service');
 const driveService = require('../drive/drive-activity.service');
 const jiraService = require('../jira/jira.service');
-
-/**
- * Detecta si un error (o su cadena de `cause`) parece un fallo de autenticación de
- * Google (token revocado/expirado): `invalid_grant` o status 400/401. Calendar y
- * Drive envuelven el error original en `error.cause`, por eso se recorre la cadena.
- */
-const looksLikeGoogleAuthError = (err) => {
-    if (!err) return false;
-    const msg = String(err.message || '');
-    const status = err.response?.status ?? err.code ?? err.status;
-    if (msg.includes('invalid_grant') || status === 400 || status === 401) return true;
-    return looksLikeGoogleAuthError(err.cause);
-};
-
-/**
- * Marca al usuario para que reconecte Google. Calendar/Drive no lo hacen solos
- * (sí lo hace el middleware HTTP `requireValidGoogleToken`, que el batch no
- * atraviesa), así que el orquestador replica ese marcado (RN-B12).
- */
-const markGoogleReconnect = async (userId) => {
-    try {
-        await prisma.user.update({ where: { id: userId }, data: { googleReconnectRequired: true } });
-        logger.warn('scheduler.google.reconnect_marked', { userId });
-    } catch (error) {
-        logger.error('scheduler.google.mark_reconnect_failed', { userId, message: error.message });
-    }
-};
 
 /**
  * Sincroniza las fuentes conectadas de un usuario dentro de la ventana dada.

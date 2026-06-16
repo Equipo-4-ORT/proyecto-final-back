@@ -127,16 +127,25 @@ describe('GeminiAdapter (Unit Tests)', () => {
         expect(mockGenerateContent).toHaveBeenCalledTimes(1);
     });
 
-    test('reintenta ante errores transitorios (red y 5xx) y luego resuelve', async () => {
+    test('reintenta una vez ante un error transitorio y luego resuelve', async () => {
         const adapter = new GeminiAdapter();
         mockGenerateContent
             .mockRejectedValueOnce(new Error('socket hang up')) // sin status HTTP → error de red
-            .mockRejectedValueOnce(Object.assign(new Error('Service Unavailable'), { status: 503 }))
             .mockResolvedValueOnce(responseWith(validOutput));
 
         const result = await adapter.generateSummary(makeActivities(), makeContext());
 
         expect(result).toHaveProperty('daySummary', 'Resumen de prueba');
-        expect(mockGenerateContent).toHaveBeenCalledTimes(3);
+        expect(mockGenerateContent).toHaveBeenCalledTimes(2);
+    });
+
+    test('agota los reintentos (MAX_RETRIES) y lanza si el error transitorio persiste', async () => {
+        const adapter = new GeminiAdapter();
+        mockGenerateContent
+            .mockRejectedValueOnce(new Error('socket hang up'))
+            .mockRejectedValueOnce(Object.assign(new Error('Service Unavailable'), { status: 503 }));
+
+        await expect(adapter.generateSummary(makeActivities(), makeContext())).rejects.toThrow(/Gemini API error/);
+        expect(mockGenerateContent).toHaveBeenCalledTimes(2);
     });
 });
