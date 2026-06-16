@@ -4,6 +4,7 @@ const { sanitizeForPrompt, sanitizeObjectForExcel } = require('../ai.sanitize');
 const { validateAIModuleOutput, validateUserContext } = require('../ai.schemas');
 const { generateSummaryPrompt } = require('../prompts/summary.prompt');
 const { AIParseError, AIValidationError } = require('../ai.errors');
+const logger = require('../../../shared/utils/logger');
 
 /**
  * Adapter de Gemini. Implementa la interfaz AIAdapter usando la API
@@ -110,14 +111,28 @@ class GeminiAdapter extends AIAdapter {
       const result = await generateContentWithRetries(this.model, fullPrompt);
       const responseText = result.response.text();
 
+      // DEBUG: respuesta cruda de Gemini para diagnosticar fallos de parseo/validación.
+      logger.debug('Respuesta cruda de Gemini', {
+        promptFeedback: result.response.promptFeedback,
+        finishReason: result.response.candidates?.[0]?.finishReason,
+        responseLength: responseText?.length,
+        responseText,
+      });
+
       let parsedOutput;
       try {
         parsedOutput = JSON.parse(responseText);
       } catch (parseError) {
+        logger.error('Fallo al parsear JSON de Gemini', {
+          parseError: parseError.message,
+          responseText,
+        });
         throw new AIParseError(`Invalid JSON from Gemini: ${parseError.message}`, {
           cause: parseError,
         });
       }
+
+      logger.debug('JSON parseado de Gemini', { parsedOutput });
 
       // Mismas validaciones estrictas que usamos en OpenAI.
       const validatedOutput = validateAIModuleOutput(parsedOutput);
@@ -127,8 +142,14 @@ class GeminiAdapter extends AIAdapter {
       // útil: los dejamos pasar tal cual en vez de disfrazarlos de error
       // de API. Solo lo que no reconocemos se trata como fallo de la API.
       if (error instanceof AIParseError || error instanceof AIValidationError) {
+        if (error instanceof AIValidationError) {
+          logger.error('Fallo de validación del output de Gemini', {
+            message: error.message,
+          });
+        }
         throw error;
       }
+      logger.error('Error de API de Gemini', { message: error.message });
       throw new Error(`Gemini API error: ${error.message}`, { cause: error });
     }
   }
