@@ -295,7 +295,7 @@ describe('Drive Activity Service', () => {
 
             const [record] = buildWorkEstimates(byFile, USER_ID, WINDOW_DATE);
 
-            expect(record.metadata).toEqual({ title: 'Mi hoja', fileId: 'sheet1', mimeType });
+            expect(record.metadata).toEqual({ title: 'Editó "Mi hoja"', fileId: 'sheet1', mimeType });
         });
 
         test('el title de primer nivel antepone el verbo de la acción al nombre del archivo', () => {
@@ -411,7 +411,7 @@ describe('Drive Activity Service', () => {
             expect(data).toHaveLength(1);
             expect(data[0]).toMatchObject({ source: 'drive', activityType: 'edit', fileType: 'document', userId: mockUserId });
             expect(data[0].title).toBe('Editó "Mi Documento"');
-            expect(data[0].metadata).toMatchObject({ title: 'Mi Documento', fileId: 'doc1' });
+            expect(data[0].metadata).toMatchObject({ title: 'Editó "Mi Documento"', fileId: 'doc1' });
         });
 
         test('Acción "create" en spreadsheet: activityType="create", fileType="spreadsheet"', async () => {
@@ -587,12 +587,12 @@ describe('Drive Activity Service', () => {
             await persistDriveActivities(mockUserId, 'token', startTime, endTime);
 
             const saved = getUpsertedRecords()[0];
-            // metadata.title guarda el nombre raw del archivo (sin el verbo de acción).
+            // metadata.title guarda el mismo valor que el title de primer nivel (verbo + nombre).
             // eslint-disable-next-line no-control-regex
             expect(saved.metadata.title).not.toMatch(/[\x00-\x08\x0E-\x1F\x7F]/);
-            expect(saved.metadata.title.startsWith('Documento')).toBe(true);
-            // El nombre del archivo quedó truncado a MAX_TITLE_CHARS (200).
-            expect(saved.metadata.title.length).toBeLessThanOrEqual(200);
+            expect(saved.metadata.title.includes('Documento')).toBe(true);
+            // El título (incluyendo el prefijo de acción) no supera el tope visible.
+            expect(saved.metadata.title.length).toBeLessThanOrEqual(210);
         });
 
         test('Devuelve created/updated en 0 y mensaje cuando no hay actividades relevantes', async () => {
@@ -873,7 +873,7 @@ describe('Drive Activity Service', () => {
                 const record = prisma.dailyActivity.upsert.mock.calls[0][0].create;
                 // Sin nombre de archivo, el title queda solo con el verbo de la acción.
                 expect(record.title).toBe('Editó');
-                expect(record.metadata.title).toBeNull();
+                expect(record.metadata.title).toBe('Editó');
                 expect(record.metadata.fileId).toBe('shared1');
             });
 
