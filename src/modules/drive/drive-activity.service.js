@@ -408,7 +408,7 @@ const buildWorkEstimates = (byFile, userId, windowDate) => {
                     startTime,
                     endTime,
                     title,
-                    metadata: { title: data.title, fileId: data.fileId, mimeType: data.mimeType },
+                    metadata: { title, fileId: data.fileId, mimeType: data.mimeType },
                 });
             });
         } else {
@@ -449,7 +449,7 @@ const buildWorkEstimates = (byFile, userId, windowDate) => {
                     startTime,
                     endTime,
                     title,
-                    metadata: { title: data.title, fileId: data.fileId, mimeType: data.mimeType },
+                    metadata: { title, fileId: data.fileId, mimeType: data.mimeType },
                 });
             });
         }
