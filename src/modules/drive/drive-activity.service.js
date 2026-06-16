@@ -17,11 +17,14 @@ class InvalidWindowError extends Error {
     }
 }
 
-// Tipos de acción que representan trabajo activo sobre un archivo
-const RELEVANT_ACTIONS = new Set(['edit', 'create']);
+// Acciones de edición/modificación directa del contenido
+const EDIT_ACTIONS = new Set(['edit', 'create', 'rename']);
 
-// Acciones que se cuentan en el resumen por archivo
-const SUMMARY_ACTIONS = new Set(['edit', 'create', 'comment', 'permissionChange']);
+// Acciones de colaboración
+const COMMENT_ACTIONS = new Set(['comment', 'suggestion']);
+
+// Acciones de organización y permisos
+const SHARE_ACTIONS = new Set(['permissionChange', 'move', 'restore', 'delete']);
 
 // MIME types a excluir: no son archivos de trabajo sino contenedores o atajos
 const EXCLUDED_MIME_TYPES = new Set([
@@ -56,6 +59,18 @@ const MIME_TO_ACTIVITY_TYPE = {
     'application/vnd.google-apps.form':         'form',
     'application/vnd.google-apps.drawing':      'drawing',
     'application/vnd.google-apps.script':       'script',
+};
+
+const ACTION_LABELS = {
+    edit:             'Editó',
+    create:           'Creó',
+    rename:           'Renombró',
+    permissionChange: 'Cambió permisos de',
+    comment:          'Comentó en',
+    suggestion:       'Sugirió en',
+    move:             'Movió',
+    delete:           'Eliminó',
+    restore:          'Restauró',
 };
 
 // Tope de llamadas simultáneas a la Drive API al enriquecer el resumen. Evita
@@ -93,7 +108,13 @@ const extractDriveTarget = (activity) => {
         : null;
     if (!actionType) return null;
 
-    const target = activity.targets?.[0]?.driveItem;
+    const rawTarget = activity.targets?.[0];
+    if (!rawTarget) return null;
+
+    // Los comentarios apuntan a fileComment; el driveItem padre es el archivo real
+    const target = rawTarget.driveItem
+        ?? rawTarget.fileComment?.parent
+        ?? null;
     if (!target) return null;
 
     const mimeType = target.mimeType || null;
@@ -108,8 +129,107 @@ const extractDriveTarget = (activity) => {
 };
 
 /**
+ * Devuelve los IDs de todos los Shared Drives a los que tiene acceso el usuario.
+ */
+const getSharedDriveIds = async (auth) => {
+    const drive = google.drive({ version: 'v3', auth });
+    const ids = [];
+    let pageToken = null;
+    do {
+        const res = await drive.drives.list({
+            pageSize: 100,
+            fields: 'nextPageToken, drives(id)',
+            ...(pageToken && { pageToken }),
+        });
+        ids.push(...(res.data.drives || []).map(d => d.id));
+        pageToken = res.data.nextPageToken || null;
+    } while (pageToken);
+    return ids;
+};
+
+/**
+ * Devuelve los IDs de archivos compartidos con el usuario modificados en el rango dado.
+ * No incluye carpetas (se manejan por separado en getSharedWithMeFolderIds).
+ */
+const getSharedWithMeFileIds = async (auth, timeMin, timeMax) => {
+    const drive = google.drive({ version: 'v3', auth });
+    const ids = [];
+    let pageToken = null;
+    do {
+        const res = await drive.files.list({
+            q: `sharedWithMe=true and modifiedTime >= "${timeMin}" and modifiedTime < "${timeMax}" and trashed=false and mimeType != "application/vnd.google-apps.folder"`,
+            fields: 'nextPageToken, files(id)',
+            pageSize: 100,
+            supportsAllDrives: true,
+            includeItemsFromAllDrives: true,
+            ...(pageToken && { pageToken }),
+        });
+        ids.push(...(res.data.files || []).map(f => f.id));
+        pageToken = res.data.nextPageToken || null;
+    } while (pageToken);
+    return ids;
+};
+
+/**
+ * Devuelve los IDs de carpetas compartidas con el usuario.
+ * Los archivos dentro de estas carpetas se consultan via ancestorName en Drive Activity API.
+ */
+const getSharedWithMeFolderIds = async (auth) => {
+    const drive = google.drive({ version: 'v3', auth });
+    const ids = [];
+    let pageToken = null;
+    do {
+        const res = await drive.files.list({
+            q: 'sharedWithMe=true and mimeType = "application/vnd.google-apps.folder" and trashed=false',
+            fields: 'nextPageToken, files(id)',
+            pageSize: 100,
+            supportsAllDrives: true,
+            includeItemsFromAllDrives: true,
+            ...(pageToken && { pageToken }),
+        });
+        ids.push(...(res.data.files || []).map(f => f.id));
+        pageToken = res.data.nextPageToken || null;
+    } while (pageToken);
+    return ids;
+};
+
+/**
+ * Ejecuta una query paginada contra la Drive Activity API y devuelve todos
+ * los resultados. Usado internamente por getDriveActivitiesForDay.
+ */
+const queryDriveActivityPaginated = async (driveactivity, requestBody) => {
+    const activities = [];
+    let nextPageToken = null;
+    let pages = 0;
+
+    do {
+        const response = await driveactivity.activity.query({
+            requestBody: {
+                ...requestBody,
+                ...(nextPageToken && { pageToken: nextPageToken }),
+            },
+        });
+
+        const page = response.data.activities || [];
+        activities.push(...page);
+        nextPageToken = response.data.nextPageToken || null;
+        pages += 1;
+    } while (nextPageToken && pages < MAX_PAGES);
+
+    if (nextPageToken) {
+        logger.warn('Tope de páginas de Drive Activity alcanzado', { pages, collected: activities.length });
+    }
+
+    return activities;
+};
+
+/**
  * Consulta la Drive Activity API para el rango de tiempo dado.
- * Maneja la paginación automáticamente hasta agotar los resultados.
+ *
+ * Lanza una query principal (consolidación legacy, que devuelve solo la acción
+ * primaria por archivo) más una query dedicada por cada tipo de acción, para
+ * recuperar las acciones que la consolidación suprime. Los resultados se unen
+ * deduplicando por fileId+actionType.
  *
  * @param {string} refreshToken - Refresh token del usuario (ya descifrado)
  * @param {string} timeMin      - Inicio del rango en ISO 8601 (UTC)
@@ -120,33 +240,145 @@ const getDriveActivitiesForDay = async (refreshToken, timeMin, timeMax) => {
     try {
         const auth = getAuthenticatedGoogleClient(refreshToken);
         const driveactivity = google.driveactivity({ version: 'v2', auth });
+        const timeFilter = `time >= "${timeMin}" AND time < "${timeMax}"`;
 
-        const activities = [];
-        let nextPageToken = null;
-        let pages = 0;
+        // Acciones no-edit: se usan queries con consolidación legacy para recuperar
+        // las acciones suprimidas por la query principal.
+        const NON_EDIT_ACTION_FILTERS = ['CREATE', 'RENAME', 'COMMENT', 'PERMISSION_CHANGE', 'MOVE', 'DELETE'];
 
-        do {
-            const response = await driveactivity.activity.query({
-                requestBody: {
-                    ancestorName: 'items/root',
-                    filter: `time >= "${timeMin}" AND time < "${timeMax}"`,
+        // Obtener shared drives, archivos compartidos y carpetas compartidas en paralelo (best-effort).
+        const [sharedDriveIds, sharedFileIds, sharedFolderIds] = await Promise.all([
+            getSharedDriveIds(auth).catch(err => {
+                logger.warn('No se pudieron obtener shared drives', { error: err.message });
+                return [];
+            }),
+            getSharedWithMeFileIds(auth, timeMin, timeMax).catch(err => {
+                logger.warn('No se pudieron obtener archivos compartidos', { error: err.message });
+                return [];
+            }),
+            getSharedWithMeFolderIds(auth).catch(err => {
+                logger.warn('No se pudieron obtener carpetas compartidas', { error: err.message });
+                return [];
+            }),
+        ]);
+
+        // Queries en paralelo:
+        // [0]     main legacy (Mi unidad, acción primaria por archivo)
+        // [1..N]  per non-edit action legacy (recupera acciones suprimidas)
+        // [N+1]   edit none (eventos de edición granulares para cálculo de sesión)
+        // [N+2..] shared drives (ancestor query, legacy)
+        // [...]   shared folders (ancestor query, legacy — cubre archivos dentro de carpetas compartidas)
+        // [...]   shared files (itemName query, none — archivos compartidos directamente)
+        const allResults = await Promise.all([
+            queryDriveActivityPaginated(driveactivity, {
+                filter: timeFilter,
+                consolidationStrategy: { legacy: {} },
+                pageSize: 100,
+            }),
+            ...NON_EDIT_ACTION_FILTERS.map(action =>
+                queryDriveActivityPaginated(driveactivity, {
+                    filter: `${timeFilter} AND detail.action_detail_case:${action}`,
                     consolidationStrategy: { legacy: {} },
                     pageSize: 100,
-                    ...(nextPageToken && { pageToken: nextPageToken }),
-                },
-            });
+                })
+            ),
+            // Edit con none consolidation para obtener eventos individuales de autosave.
+            // Permite calcular la duración real de cada sesión de edición.
+            queryDriveActivityPaginated(driveactivity, {
+                filter: `${timeFilter} AND detail.action_detail_case:EDIT`,
+                consolidationStrategy: { none: {} },
+                pageSize: 100,
+            }),
+            ...sharedDriveIds.map(driveId =>
+                queryDriveActivityPaginated(driveactivity, {
+                    ancestorName: `drives/${driveId}`,
+                    filter: timeFilter,
+                    consolidationStrategy: { legacy: {} },
+                    pageSize: 100,
+                }).catch(() => [])
+            ),
+            ...sharedFolderIds.map(folderId =>
+                queryDriveActivityPaginated(driveactivity, {
+                    ancestorName: `items/${folderId}`,
+                    filter: timeFilter,
+                    consolidationStrategy: { legacy: {} },
+                    pageSize: 100,
+                }).catch(() => [])
+            ),
+            ...sharedFileIds.map(fileId =>
+                queryDriveActivityPaginated(driveactivity, {
+                    itemName: `items/${fileId}`,
+                    filter: timeFilter,
+                    consolidationStrategy: { none: {} },
+                    pageSize: 100,
+                }).catch(() => [])
+            ),
+        ]);
 
-            const page = response.data.activities || [];
-            activities.push(...page);
-            nextPageToken = response.data.nextPageToken || null;
-            pages += 1;
-        } while (nextPageToken && pages < MAX_PAGES);
+        const editNoneIdx = 1 + NON_EDIT_ACTION_FILTERS.length;
+        // none edit activities: query de Mi unidad + shared file queries
+        const sharedFileStartIdx = editNoneIdx + 1 + sharedDriveIds.length + sharedFolderIds.length;
+        const noneEditActivities = [
+            ...allResults[editNoneIdx],
+            // shared file none queries también pueden tener edits
+            ...allResults.slice(sharedFileStartIdx).flat().filter(a =>
+                Object.keys(a.primaryActionDetail || {})[0] === 'edit'
+            ),
+        ];
 
-        if (nextPageToken) {
-            logger.warn('Tope de páginas de Drive Activity alcanzado', { pages, collected: activities.length });
-        }
+        // Archivos con edits en queries none: sus eventos legacy de edit se descartan
+        // para no inflar la duración mezclando el timeRange grande de legacy con los
+        // intervalos granulares de none.
+        const filesWithNoneEdits = new Set(
+            noneEditActivities
+                .map(a => a.targets?.[0]?.driveItem?.name ?? a.targets?.[0]?.fileComment?.parent?.name)
+                .filter(Boolean)
+        );
 
-        return activities;
+        // Deduplicar todos los resultados legacy (sin edits de archivos en filesWithNoneEdits).
+        const legacySeen = new Set();
+        const legacyDeduped = allResults.slice(0, sharedFileStartIdx).flat().filter(a => {
+            const actionType = Object.keys(a.primaryActionDetail || {})[0];
+            const target = a.targets?.[0]?.driveItem ?? a.targets?.[0]?.fileComment?.parent;
+            const fileId = target?.name;
+            const ts = a.timeRange?.startTime ?? a.timestamp;
+            if (!fileId || !actionType || !ts) return false;
+            if (actionType === 'edit' && filesWithNoneEdits.has(fileId)) return false;
+            const key = `${fileId}__${actionType}__${ts}`;
+            if (legacySeen.has(key)) return false;
+            legacySeen.add(key);
+            return true;
+        });
+
+        // Deduplicar los eventos none de edición (provienen de múltiples queries).
+        const noneSeen = new Set();
+        const noneDeduped = noneEditActivities.filter(a => {
+            const target = a.targets?.[0]?.driveItem ?? a.targets?.[0]?.fileComment?.parent;
+            const fileId = target?.name;
+            const ts = a.timeRange?.startTime ?? a.timestamp;
+            if (!fileId || !ts) return false;
+            const key = `${fileId}__edit__${ts}`;
+            if (noneSeen.has(key)) return false;
+            noneSeen.add(key);
+            return true;
+        });
+
+        // Agregar non-edit events de shared file queries (también usan none consolidation).
+        const sharedNonEditSeen = new Set([...legacySeen]);
+        const sharedNonEditDeduped = allResults.slice(sharedFileStartIdx).flat().filter(a => {
+            const actionType = Object.keys(a.primaryActionDetail || {})[0];
+            if (actionType === 'edit') return false; // ya incluidos en noneDeduped
+            const target = a.targets?.[0]?.driveItem ?? a.targets?.[0]?.fileComment?.parent;
+            const fileId = target?.name;
+            const ts = a.timeRange?.startTime ?? a.timestamp;
+            if (!fileId || !actionType || !ts) return false;
+            const key = `${fileId}__${actionType}__${ts}`;
+            if (sharedNonEditSeen.has(key)) return false;
+            sharedNonEditSeen.add(key);
+            return true;
+        });
+
+        return [...legacyDeduped, ...noneDeduped, ...sharedNonEditDeduped];
     } catch (error) {
         logger.error('Error al obtener actividades de Drive', { message: error.message, code: error.code });
         throw new Error('Error al obtener actividades de Drive', { cause: error });
@@ -154,60 +386,110 @@ const getDriveActivitiesForDay = async (refreshToken, timeMin, timeMax) => {
 };
 
 /**
- * Estima la duración de trabajo por archivo a partir de sus acciones crudas.
+ * Construye los registros de DailyActivity a partir de las acciones crudas
+ * agrupadas por archivo+acción, estimando la duración según el tipo de acción:
  *
- * Agrupa todos los timestamps de acciones relevantes del archivo y calcula:
- *   startTime = primera acción
- *   endTime   = min(última acción + WORK_BUFFER_MS, primera acción + MAX_WORK_DURATION_MS)
+ *   - Acciones instantáneas (INSTANT_ACTIONS: create, rename, move, delete…):
+ *     cada ocurrencia es un registro fijo de WORK_BUFFER_MS, deduplicando por
+ *     startMs (la API puede repetir el mismo evento).
+ *   - Acciones continuas (edit, comment): se agrupan en sesiones cuando el gap
+ *     entre eventos supera SESSION_GAP_MS. Cada sesión va de su primer evento a
+ *     su endTime (si la API lo provee) o al último start + WORK_BUFFER_MS, con
+ *     tope de MAX_WORK_DURATION_MS.
  *
- * Esto hace que cada archivo aparezca con una barra de duración real en el
- * timeline, en lugar de un punto sin extensión (que era el resultado cuando
- * la API devolvía un timestamp puntual para cada acción).
+ * Cuando un archivo+acción genera más de un registro, el externalId lleva sufijo
+ * `_sN` para que cada uno sea idempotente por separado.
  *
- * @param {Map<string, {fileId: string, title: string|null, mimeType: string|null, timestampsMs: number[]}>} byFile
- *   Mapa de fileId → datos acumulados del archivo.
+ * @param {Map<string, {fileId: string, actionType: string, title: string|null, mimeType: string|null, intervals: {startMs: number, endMs: number|null}[]}>} byFile
+ *   Mapa de fileId+actionType → datos acumulados.
  * @param {string} userId
  * @param {string} windowDate - Fecha de la ventana de sync en formato YYYY-MM-DD (para el externalId).
- * @returns {Array<object>} Registros listos para createMany en DailyActivity.
+ * @returns {Array<object>} Registros listos para upsert en DailyActivity.
  */
+// Gap máximo entre timestamps para considerarlos parte de la misma sesión (para edit/comment).
+const SESSION_GAP_MS = 30 * 60 * 1000; // 30 min
+
+// Acciones instantáneas: cada ocurrencia es un registro fijo de WORK_BUFFER_MS (5 min),
+// sin importar cuánto tiempo pasó entre ellas.
+const INSTANT_ACTIONS = new Set(['create', 'rename', 'delete', 'move', 'restore', 'permissionChange']);
+
 const buildWorkEstimates = (byFile, userId, windowDate) => {
     const records = [];
 
-    for (const [fileId, data] of byFile) {
-        // reduce en lugar de Math.min(...arr): el spread de un array muy grande
-        // puede desbordar la pila (RangeError). Acá está acotado por MAX_PAGES,
-        // pero ser defensivo es gratis.
-        const firstMs = data.timestampsMs.reduce((a, b) => Math.min(a, b));
-        const lastMs  = data.timestampsMs.reduce((a, b) => Math.max(a, b));
+    for (const [, data] of byFile) {
+        const fileType = MIME_TO_ACTIVITY_TYPE[data.mimeType] ?? 'file';
+        const actionLabel = ACTION_LABELS[data.actionType] ?? data.actionType;
+        const title = data.title ? `${actionLabel} "${data.title}"` : actionLabel;
 
-        const startTime = new Date(firstMs);
-        // Suma el buffer a la última acción, pero nunca supera el tope de 2 h
-        // contado desde la primera. Así un archivo con acciones muy separadas
-        // no infla el timeline más allá de lo razonable.
-        const endTime   = new Date(Math.min(lastMs + WORK_BUFFER_MS, firstMs + MAX_WORK_DURATION_MS));
+        if (INSTANT_ACTIONS.has(data.actionType)) {
+            // Deduplicar por startMs: la API puede devolver el mismo evento dos veces.
+            const seen = new Set();
+            const unique = data.intervals.filter(({ startMs }) => {
+                if (seen.has(startMs)) return false;
+                seen.add(startMs);
+                return true;
+            });
+            const sorted = unique.sort((a, b) => a.startMs - b.startMs);
+            sorted.forEach(({ startMs }, idx) => {
+                const startTime = new Date(startMs);
+                const endTime   = new Date(startMs + WORK_BUFFER_MS);
+                const suffix = sorted.length > 1 ? `_s${idx + 1}` : '';
+                const externalId = `file_${data.fileId}_${data.actionType}_${windowDate}${suffix}`;
 
-        // externalId estable: un registro por archivo por día de sync.
-        // skipDuplicates lo hace idempotente si el sync se repite el mismo día.
-        const externalId = `file_${fileId}_${windowDate}`;
+                records.push({
+                    userId,
+                    source: 'drive',
+                    activityType: data.actionType,
+                    fileType,
+                    externalId,
+                    startTime,
+                    endTime,
+                    title,
+                    metadata: { title, fileId: data.fileId, mimeType: data.mimeType },
+                });
+            });
+        } else {
+            // Acciones continuas (edit, comment): agrupar por sesión según SESSION_GAP_MS.
+            // Si la API provee endTime en el intervalo, se usa directamente.
+            const sorted = [...data.intervals].sort((a, b) => a.startMs - b.startMs);
+            const sessions = [];
+            let current = [sorted[0]];
+            for (let i = 1; i < sorted.length; i++) {
+                if (sorted[i].startMs - sorted[i - 1].startMs > SESSION_GAP_MS) {
+                    sessions.push(current);
+                    current = [];
+                }
+                current.push(sorted[i]);
+            }
+            sessions.push(current);
 
-        // activityType refleja la app del archivo (document, spreadsheet, presentation…)
-        // para que el timeline muestre el tipo correcto sin necesitar leer metadata.
-        // Los archivos sin mimeType nativo de Workspace (PDFs, imágenes, etc.) quedan como 'file'.
-        const activityType = MIME_TO_ACTIVITY_TYPE[data.mimeType] ?? 'file';
+            sessions.forEach((session, idx) => {
+                const firstMs = session[0].startMs;
+                // Usar el endMs más tardío del grupo si la API lo provee;
+                // si no, caer al startMs más tardío + buffer.
+                const lastStartMs = session[session.length - 1].startMs;
+                const lastEndMs   = session.reduce((max, iv) => iv.endMs ? Math.max(max, iv.endMs) : max, 0);
+                const sessionEnd = lastEndMs > 0 ? lastEndMs : lastStartMs;
+                const rawEnd = Math.max(sessionEnd, firstMs + WORK_BUFFER_MS);
 
-        records.push({
-            userId,
-            source: 'drive',
-            activityType,
-            externalId,
-            startTime,
-            endTime,
-            // title en columna de primer nivel (para listados y búsquedas) y en metadata
-            // (para compatibilidad con enrichDriveActivitySummary que lo lee de ahí).
-            // Viene saneado + truncado desde extractDriveTarget.
-            title: data.title,
-            metadata: { title: data.title, fileId, mimeType: data.mimeType },
-        });
+                const startTime = new Date(firstMs);
+                const endTime   = new Date(Math.min(rawEnd, firstMs + MAX_WORK_DURATION_MS));
+                const suffix = sessions.length > 1 ? `_s${idx + 1}` : '';
+                const externalId = `file_${data.fileId}_${data.actionType}_${windowDate}${suffix}`;
+
+                records.push({
+                    userId,
+                    source: 'drive',
+                    activityType: data.actionType,
+                    fileType,
+                    externalId,
+                    startTime,
+                    endTime,
+                    title,
+                    metadata: { title, fileId: data.fileId, mimeType: data.mimeType },
+                });
+            });
+        }
     }
 
     return records;
@@ -216,18 +498,17 @@ const buildWorkEstimates = (byFile, userId, windowDate) => {
 /**
  * Persiste las actividades de Drive del día indicado en la BD.
  *
- * En lugar de guardar un registro por acción, agrupa por archivo y estima
- * la duración de trabajo: desde la primera acción hasta la última + 5 min
- * de buffer, con un tope de 2 h. Así las actividades de Drive aparecen con
- * duración real en el timeline (en lugar de un punto de duración cero).
- *
- * Usa skipDuplicates para ser idempotente si se llama varias veces el mismo día.
+ * Agrupa las acciones crudas por archivo+acción y delega en buildWorkEstimates
+ * la estimación de duración (ver su doc: acciones instantáneas vs. sesiones).
+ * Cada registro se persiste con upsert sobre la clave única
+ * (userId, source, externalId), de modo que un re-sync del mismo día actualiza
+ * la duración en vez de duplicar.
  *
  * @param {string} userId         - ID del usuario en el sistema
  * @param {string} refreshToken   - Refresh token del usuario (ya descifrado)
  * @param {string|Date} startTime - Inicio de la ventana (ISO 8601 con TZ).
  * @param {string|Date} endTime   - Fin de la ventana, exclusivo (ISO 8601 con TZ).
- * @returns {Promise<{count: number, message: string}>}
+ * @returns {Promise<{created: number, updated: number, message: string}>}
  * @throws {InvalidWindowError} si la ventana es inválida.
  */
 const persistDriveActivities = async (userId, refreshToken, startTime, endTime) => {
@@ -253,53 +534,83 @@ const persistDriveActivities = async (userId, refreshToken, startTime, endTime) 
 
     const rawActivities = await getDriveActivitiesForDay(refreshToken, timeMin, timeMax);
 
-    // Acumular timestamps por archivo — un archivo puede tener múltiples
-    // acciones de edit/create en la ventana; queremos la primera y la última.
+    // Acumular timestamps por archivo+acción — cada tipo de acción sobre un
+    // archivo genera un registro separado en el timeline.
     const byFile = new Map();
 
     for (const activity of rawActivities) {
         const extracted = extractDriveTarget(activity);
-        if (!extracted || !RELEVANT_ACTIONS.has(extracted.actionType)) continue;
+        if (!extracted) continue;
 
-        const { fileId, mimeType, title } = extracted;
+        const { actionType, fileId, mimeType, title } = extracted;
         if (!fileId) continue;
 
         // La API devuelve timestamp (evento puntual) o timeRange (sesión de trabajo).
-        // Para la estimación usamos el instante de inicio de la acción en ambos casos.
-        const tsMs = activity.timeRange
+        // Guardamos inicio y fin explícito cuando está disponible.
+        const startMs = activity.timeRange
             ? new Date(activity.timeRange.startTime).getTime()
             : new Date(activity.timestamp).getTime();
+        const endMs = activity.timeRange?.endTime
+            ? new Date(activity.timeRange.endTime).getTime()
+            : null;
 
-        if (!byFile.has(fileId)) {
-            byFile.set(fileId, { fileId, mimeType, title, timestampsMs: [] });
+        // Clave compuesta: fileId + actionType → un registro por acción por archivo
+        const key = `${fileId}__${actionType}`;
+        if (!byFile.has(key)) {
+            byFile.set(key, { fileId, actionType, mimeType, title, intervals: [] });
         }
-        const entry = byFile.get(fileId);
-        entry.timestampsMs.push(tsMs);
-        // Conservar el título del primer evento que lo traiga (la API a veces
-        // devuelve null en eventos de edición consolidados).
+        const entry = byFile.get(key);
+        entry.intervals.push({ startMs, endMs });
         if (!entry.title && title) entry.title = title;
     }
 
     if (byFile.size === 0) {
-        return { count: 0, message: 'No se encontraron actividades relevantes de Drive para guardar' };
+        return { created: 0, updated: 0, message: 'No se encontraron actividades relevantes de Drive para guardar' };
     }
 
     const activitiesToSave = buildWorkEstimates(byFile, userId, windowDate);
 
-    // Re-sync idempotente sin congelar la duración: en lugar de saltar duplicados
-    // (que dejaba intacta la estimación del primer sync), se borran los registros
-    // del día de los archivos de esta ventana y se reinsertan recalculados. Así un
-    // segundo sync incorpora toda la actividad nueva del día sin duplicar las
-    // anteriores. El delete + el insert van en una sola transacción (atómico).
-    const externalIds = activitiesToSave.map((record) => record.externalId);
-    const [, result] = await prisma.$transaction([
-        prisma.dailyActivity.deleteMany({
-            where: { userId, source: 'drive', externalId: { in: externalIds } },
-        }),
-        prisma.dailyActivity.createMany({ data: activitiesToSave }),
-    ]);
+    // Determinar cuáles externalIds ya existen para separar creates de updates.
+    const externalIds = activitiesToSave.map((r) => r.externalId);
+    const existing = await prisma.dailyActivity.findMany({
+        where: { userId, source: 'drive', externalId: { in: externalIds } },
+        select: { externalId: true },
+    });
+    const existingSet = new Set(existing.map((r) => r.externalId));
 
-    return { count: result.count, message: `${result.count} actividades de Drive guardadas` };
+    await prisma.$transaction(
+        activitiesToSave.map((record) =>
+            prisma.dailyActivity.upsert({
+                where: {
+                    userId_source_externalId: {
+                        userId: record.userId,
+                        source: record.source,
+                        externalId: record.externalId,
+                    },
+                },
+                create: record,
+                update: {
+                    startTime:    record.startTime,
+                    endTime:      record.endTime,
+                    activityType: record.activityType,
+                    fileType:     record.fileType,
+                    title:        record.title,
+                    metadata:     record.metadata,
+                },
+            })
+        )
+    );
+
+    const created = activitiesToSave.filter((r) => !existingSet.has(r.externalId)).length;
+    const updated = activitiesToSave.length - created;
+
+    if (created === 0 && updated > 0) {
+        return { created: 0, updated, message: `${updated} actividades actualizadas` };
+    }
+    if (updated === 0) {
+        return { created, updated: 0, message: `${created} actividades guardadas` };
+    }
+    return { created, updated, message: `${created} actividades guardadas, ${updated} actualizadas` };
 };
 
 // TODO (incremental): summarizeDriveActivities y enrichDriveActivitySummary todavía
@@ -309,8 +620,11 @@ const persistDriveActivities = async (userId, refreshToken, startTime, endTime) 
 // Por ahora se entregan a nivel servicio + tests.
 
 /**
- * Agrupa actividades crudas de Drive por archivo y cuenta las acciones
- * relevantes (edit/create, comment, permissionChange) por cada uno.
+ * Agrupa actividades crudas de Drive por archivo y cuenta las acciones por
+ * cada uno, clasificándolas en tres contadores:
+ *   - editCount:    EDIT_ACTIONS    (edit, create, rename)
+ *   - commentCount: COMMENT_ACTIONS (comment, suggestion)
+ *   - shareCount:   SHARE_ACTIONS   (permissionChange, move, restore, delete)
  *
  * Los contadores reflejan ACTIVIDADES CONSOLIDADAS, no eventos crudos: el query
  * usa consolidationStrategy "legacy", que agrupa acciones similares sobre el
@@ -319,7 +633,6 @@ const persistDriveActivities = async (userId, refreshToken, startTime, endTime) 
  * el archivo; eso sería un cálculo aparte sobre timeRange — pendiente/backlog.)
  *
  * Las carpetas y accesos directos se excluyen del resumen.
- * Las acciones que no pertenecen a SUMMARY_ACTIONS se ignoran.
  *
  * @param {object[]} rawActivities - Array crudo devuelto por getDriveActivitiesForDay
  * @returns {Array<{
@@ -338,7 +651,7 @@ const summarizeDriveActivities = (rawActivities) => {
 
     for (const activity of rawActivities) {
         const extracted = extractDriveTarget(activity);
-        if (!extracted || !SUMMARY_ACTIONS.has(extracted.actionType)) continue;
+        if (!extracted) continue;
 
         const { actionType, fileId, mimeType, title } = extracted;
         if (!fileId) continue;
@@ -356,11 +669,11 @@ const summarizeDriveActivities = (rawActivities) => {
 
         const entry = byFile.get(fileId);
 
-        if (actionType === 'edit' || actionType === 'create') {
+        if (EDIT_ACTIONS.has(actionType)) {
             entry.editCount += 1;
-        } else if (actionType === 'comment') {
+        } else if (COMMENT_ACTIONS.has(actionType)) {
             entry.commentCount += 1;
-        } else if (actionType === 'permissionChange') {
+        } else if (SHARE_ACTIONS.has(actionType)) {
             entry.shareCount += 1;
         }
     }

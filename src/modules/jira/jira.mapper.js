@@ -313,22 +313,31 @@ const mapCreationToActivity = (userId, issue, myAccountId, dateStart, dateEnd) =
  * Worklogs del usuario dentro de la ventana. El `endTime` = `started` + `timeSpentSeconds`.
  * @param {object[]} worklogs - payload `worklogs[]` de `/issue/{key}/worklog`.
  */
-const mapWorklogsToActivities = (userId, issue, worklogs, myAccountId, dateStart, dateEnd) => {
+const mapWorklogsToActivities = (userId, issue, worklogs, myAccountId, dateStart, dateEnd, defaultDuration) => {
     if (!Array.isArray(worklogs)) return [];
+
+    const defaultDurationSeconds = (defaultDuration || 60) * 60; // defaultDuration viene en minutos, lo convertimos a segundos
     return worklogs
         .filter((w) => isMine(w.author, myAccountId) && isWithinWindow(w.started, dateStart, dateEnd))
         .map((w) => {
             const startedMs = ms(w.started);
-            const seconds = Number(w.timeSpentSeconds) || 0;
-            const title = buildActivityTitle({ actionType: ACTIVITY_TYPE.WORKLOG, issue, durationSeconds: seconds });
+            const originalSeconds = Number(w.timeSpentSeconds) || 0; // Jira siempre devuelve la duración en segundos
+            const cappedSeconds = originalSeconds > defaultDurationSeconds ? defaultDurationSeconds : originalSeconds;
+
+            const endMs = startedMs + cappedSeconds * 1000;
+            const title = buildActivityTitle({ actionType: ACTIVITY_TYPE.WORKLOG, issue, durationSeconds: cappedSeconds });
             return buildActivity({
                 userId,
                 issue,
                 actionType: ACTIVITY_TYPE.WORKLOG,
                 timestamp: w.started,
-                endTimestamp: startedMs + seconds * 1000,
+                endTimestamp: endMs,
                 title,
-                extraMetadata: { time_spent_seconds: seconds, worklog_id: w.id ?? null },
+                extraMetadata: {
+                    time_spent_seconds: cappedSeconds,
+                    original_time_spent: originalSeconds,
+                    worklog_id: w.id ?? null,
+                },
             });
         });
 };
@@ -338,12 +347,12 @@ const mapWorklogsToActivities = (userId, issue, worklogs, myAccountId, dateStart
  * @param {{userId: string, issue: object, comments: object[], histories: object[], worklogs: object[], myAccountId: string}} input
  */
 const issueToActivities = (input, dateStart, dateEnd) => {
-    const { userId, issue, comments, histories, worklogs, myAccountId } = input;
+    const { userId, issue, comments, histories, worklogs, myAccountId, defaultDuration } = input;
     return [
         ...mapCreationToActivity(userId, issue, myAccountId, dateStart, dateEnd),
         ...mapCommentsToActivities(userId, issue, comments, myAccountId, dateStart, dateEnd),
         ...mapChangelogToActivities(userId, issue, histories, myAccountId, dateStart, dateEnd),
-        ...mapWorklogsToActivities(userId, issue, worklogs, myAccountId, dateStart, dateEnd),
+        ...mapWorklogsToActivities(userId, issue, worklogs, myAccountId, dateStart, dateEnd, defaultDuration),
     ];
 };
 

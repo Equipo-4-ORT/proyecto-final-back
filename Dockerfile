@@ -6,7 +6,8 @@ WORKDIR /usr/src/app
 
 COPY --chown=node:node package*.json ./
 
-# Copy the Prisma schema before install so the postinstall "prisma generate" hook can find it
+# El schema debe estar presente antes de `npm ci`: el postinstall corre
+# `prisma generate`, que falla si no encuentra prisma/schema.prisma.
 COPY --chown=node:node prisma ./prisma
 
 RUN npm ci

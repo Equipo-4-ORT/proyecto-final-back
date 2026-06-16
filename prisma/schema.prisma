@@ -41,7 +41,7 @@ model User {
   googleId      String?  @unique @map("google_id")
   workStartTime   String   @default("09:00") @map("work_start_time")
   workEndTime     String   @default("18:00") @map("work_end_time")
-  defaultDuration Int      @default(30) @map("default_duration")
+  defaultDuration Int      @default(60) @map("default_duration")
   avoidOverlaps   Boolean  @default(false) @map("avoid_overlaps")
   // ⚠️ Refresh token de GOOGLE OAuth (cifrado AES-256-GCM). Lo usan los módulos
   //    calendar/drive para llamar a las APIs de Google en background. NO confundir
@@ -115,7 +115,8 @@ model DailyActivity {
   title        String?  // Título de la actividad (ej: summary del evento de Calendar)
   source       String   // Ej: 'calendar', 'drive', 'jira'
   // TODO: Migrar a enum cuando se integre Google APIs y Jira (ver valores reales devueltos por las APIs)
-  activityType String   @map("activity_type") // Ej: 'meeting', 'edit'
+  activityType String   @map("activity_type") // Acción realizada: 'create', 'edit', 'rename', 'permissionChange', 'meeting', etc.
+  fileType     String?  @map("file_type")    // Tipo de archivo: 'document', 'spreadsheet', 'presentation', etc.
   externalId   String?  @map("external_id") // Clave externa para idempotencia (Jira la setea siempre)
   startTime    DateTime @map("start_time")
   endTime      DateTime @map("end_time")
