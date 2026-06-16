@@ -149,6 +149,7 @@ const getSharedDriveIds = async (auth) => {
 
 /**
  * Devuelve los IDs de archivos compartidos con el usuario modificados en el rango dado.
+ * No incluye carpetas (se manejan por separado en getSharedWithMeFolderIds).
  */
 const getSharedWithMeFileIds = async (auth, timeMin, timeMax) => {
     const drive = google.drive({ version: 'v3', auth });
@@ -156,7 +157,30 @@ const getSharedWithMeFileIds = async (auth, timeMin, timeMax) => {
     let pageToken = null;
     do {
         const res = await drive.files.list({
-            q: `sharedWithMe=true and modifiedTime >= "${timeMin}" and modifiedTime < "${timeMax}" and trashed=false`,
+            q: `sharedWithMe=true and modifiedTime >= "${timeMin}" and modifiedTime < "${timeMax}" and trashed=false and mimeType != "application/vnd.google-apps.folder"`,
+            fields: 'nextPageToken, files(id)',
+            pageSize: 100,
+            supportsAllDrives: true,
+            includeItemsFromAllDrives: true,
+            ...(pageToken && { pageToken }),
+        });
+        ids.push(...(res.data.files || []).map(f => f.id));
+        pageToken = res.data.nextPageToken || null;
+    } while (pageToken);
+    return ids;
+};
+
+/**
+ * Devuelve los IDs de carpetas compartidas con el usuario.
+ * Los archivos dentro de estas carpetas se consultan via ancestorName en Drive Activity API.
+ */
+const getSharedWithMeFolderIds = async (auth) => {
+    const drive = google.drive({ version: 'v3', auth });
+    const ids = [];
+    let pageToken = null;
+    do {
+        const res = await drive.files.list({
+            q: 'sharedWithMe=true and mimeType = "application/vnd.google-apps.folder" and trashed=false',
             fields: 'nextPageToken, files(id)',
             pageSize: 100,
             supportsAllDrives: true,
@@ -222,14 +246,18 @@ const getDriveActivitiesForDay = async (refreshToken, timeMin, timeMax) => {
         // las acciones suprimidas por la query principal.
         const NON_EDIT_ACTION_FILTERS = ['CREATE', 'RENAME', 'COMMENT', 'PERMISSION_CHANGE', 'MOVE', 'DELETE'];
 
-        // Obtener shared drives y archivos compartidos en paralelo (best-effort).
-        const [sharedDriveIds, sharedFileIds] = await Promise.all([
+        // Obtener shared drives, archivos compartidos y carpetas compartidas en paralelo (best-effort).
+        const [sharedDriveIds, sharedFileIds, sharedFolderIds] = await Promise.all([
             getSharedDriveIds(auth).catch(err => {
                 logger.warn('No se pudieron obtener shared drives', { error: err.message });
                 return [];
             }),
             getSharedWithMeFileIds(auth, timeMin, timeMax).catch(err => {
                 logger.warn('No se pudieron obtener archivos compartidos', { error: err.message });
+                return [];
+            }),
+            getSharedWithMeFolderIds(auth).catch(err => {
+                logger.warn('No se pudieron obtener carpetas compartidas', { error: err.message });
                 return [];
             }),
         ]);
@@ -239,7 +267,8 @@ const getDriveActivitiesForDay = async (refreshToken, timeMin, timeMax) => {
         // [1..N]  per non-edit action legacy (recupera acciones suprimidas)
         // [N+1]   edit none (eventos de edición granulares para cálculo de sesión)
         // [N+2..] shared drives (ancestor query, legacy)
-        // [...]   shared files (itemName query, none — cubre edits granulares también)
+        // [...]   shared folders (ancestor query, legacy — cubre archivos dentro de carpetas compartidas)
+        // [...]   shared files (itemName query, none — archivos compartidos directamente)
         const allResults = await Promise.all([
             queryDriveActivityPaginated(driveactivity, {
                 filter: timeFilter,
@@ -268,6 +297,14 @@ const getDriveActivitiesForDay = async (refreshToken, timeMin, timeMax) => {
                     pageSize: 100,
                 }).catch(() => [])
             ),
+            ...sharedFolderIds.map(folderId =>
+                queryDriveActivityPaginated(driveactivity, {
+                    ancestorName: `items/${folderId}`,
+                    filter: timeFilter,
+                    consolidationStrategy: { legacy: {} },
+                    pageSize: 100,
+                }).catch(() => [])
+            ),
             ...sharedFileIds.map(fileId =>
                 queryDriveActivityPaginated(driveactivity, {
                     itemName: `items/${fileId}`,
@@ -280,7 +317,7 @@ const getDriveActivitiesForDay = async (refreshToken, timeMin, timeMax) => {
 
         const editNoneIdx = 1 + NON_EDIT_ACTION_FILTERS.length;
         // none edit activities: query de Mi unidad + shared file queries
-        const sharedFileStartIdx = editNoneIdx + 1 + sharedDriveIds.length;
+        const sharedFileStartIdx = editNoneIdx + 1 + sharedDriveIds.length + sharedFolderIds.length;
         const noneEditActivities = [
             ...allResults[editNoneIdx],
             // shared file none queries también pueden tener edits
