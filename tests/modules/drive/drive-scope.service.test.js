@@ -109,6 +109,25 @@ describe('Drive Scope Service', () => {
             }));
         });
 
+        test('Acota por modifiedTime cuando se pasa la ventana (evita enumerar TODOS los compartidos → 429)', async () => {
+            mockFilesList.mockResolvedValue({ data: { files: [] } });
+
+            await listSharedWithMeScopes(
+                'token',
+                '2026-06-15T00:00:00.000Z',
+                '2026-06-16T00:00:00.000Z',
+            );
+
+            expect(mockFilesList).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    q:
+                        'sharedWithMe = true and trashed = false' +
+                        ' and modifiedTime >= "2026-06-15T00:00:00.000Z"' +
+                        ' and modifiedTime < "2026-06-16T00:00:00.000Z"',
+                }),
+            );
+        });
+
         test('Excluye carpetas y accesos directos de la enumeración', async () => {
             mockFilesList.mockResolvedValue({
                 data: {
@@ -194,6 +213,19 @@ describe('Drive Scope Service', () => {
             const scopes = await buildDriveScopes('token');
 
             expect(scopes).toEqual([{ ancestorName: 'items/root' }, { itemName: 'items/f1' }]);
+        });
+
+        test('Propaga la ventana a la enumeración de "Compartido conmigo" (filtro modifiedTime)', async () => {
+            mockDrivesList.mockResolvedValue({ data: { drives: [] } });
+            mockFilesList.mockResolvedValue({ data: { files: [] } });
+
+            await buildDriveScopes('token', '2026-06-15T00:00:00.000Z', '2026-06-16T00:00:00.000Z');
+
+            expect(mockFilesList).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    q: expect.stringContaining('modifiedTime >= "2026-06-15T00:00:00.000Z"'),
+                }),
+            );
         });
     });
 });

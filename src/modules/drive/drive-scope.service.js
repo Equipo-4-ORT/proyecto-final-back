@@ -77,19 +77,33 @@ const listSharedDriveScopes = async (refreshToken) => {
  * archivos en papelera, y aplica el tope MAX_SHARED_ITEMS. Si la API falla,
  * devuelve [].
  *
+ * IMPORTANTE (cuota): se filtra por `modifiedTime` dentro de la ventana de sync.
+ * Sin este filtro se enumeran TODOS los archivos compartidos con el usuario
+ * (cientos), y cada uno dispara su propia tanda de queries contra la Activity
+ * API, reventando el límite de "Query Requests per minute" (429). Acotando a los
+ * modificados en la ventana, los scopes bajan a los pocos que el usuario pudo tocar.
+ *
  * @param {string} refreshToken - Refresh token del usuario (ya descifrado)
+ * @param {string} [timeMin] - Inicio de la ventana en ISO 8601 (UTC)
+ * @param {string} [timeMax] - Fin de la ventana en ISO 8601 (UTC)
  * @returns {Promise<Array<{itemName: string}>>}
  */
-const listSharedWithMeScopes = async (refreshToken) => {
+const listSharedWithMeScopes = async (refreshToken, timeMin, timeMax) => {
     try {
         const auth = getAuthenticatedGoogleClient(refreshToken);
         const drive = google.drive({ version: 'v3', auth });
         const scopes = [];
         let pageToken = null;
 
+        const timeClause =
+            timeMin && timeMax
+                ? ` and modifiedTime >= "${timeMin}" and modifiedTime < "${timeMax}"`
+                : '';
+        const q = `sharedWithMe = true and trashed = false${timeClause}`;
+
         do {
             const res = await drive.files.list({
-                q: 'sharedWithMe = true and trashed = false',
+                q,
                 fields: 'nextPageToken,files(id,mimeType)',
                 pageSize: SHARED_WITH_ME_PAGE_SIZE,
                 supportsAllDrives: true,
@@ -125,12 +139,14 @@ const listSharedWithMeScopes = async (refreshToken) => {
  * [] si su API falla).
  *
  * @param {string} refreshToken - Refresh token del usuario (ya descifrado)
+ * @param {string} [timeMin] - Inicio de la ventana en ISO 8601 (UTC), para acotar "Compartido conmigo"
+ * @param {string} [timeMax] - Fin de la ventana en ISO 8601 (UTC)
  * @returns {Promise<Array<{ancestorName: string}|{itemName: string}>>}
  */
-const buildDriveScopes = async (refreshToken) => {
+const buildDriveScopes = async (refreshToken, timeMin, timeMax) => {
     const [sharedDrives, sharedWithMe] = await Promise.all([
         listSharedDriveScopes(refreshToken),
-        listSharedWithMeScopes(refreshToken),
+        listSharedWithMeScopes(refreshToken, timeMin, timeMax),
     ]);
 
     logger.info?.('Scopes de Drive enumerados', {

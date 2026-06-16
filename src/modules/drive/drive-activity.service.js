@@ -11,11 +11,13 @@ const { buildDriveScopes } = require('./drive-scope.service');
  * parseables o startTime >= endTime). El controller lo mapea a 400.
  */
 class InvalidWindowError extends Error {
-    constructor(message = 'Ventana inválida: startTime y endTime deben ser ISO 8601 y startTime < endTime') {
-        super(message);
-        this.name = 'InvalidWindowError';
-        this.statusCode = 400;
-    }
+  constructor(
+    message = 'Ventana inválida: startTime y endTime deben ser ISO 8601 y startTime < endTime',
+  ) {
+    super(message);
+    this.name = 'InvalidWindowError';
+    this.statusCode = 400;
+  }
 }
 
 // Acciones de edición/modificación directa del contenido
@@ -29,8 +31,8 @@ const SHARE_ACTIONS = new Set(['permissionChange', 'move', 'restore', 'delete'])
 
 // MIME types a excluir: no son archivos de trabajo sino contenedores o atajos
 const EXCLUDED_MIME_TYPES = new Set([
-    'application/vnd.google-apps.folder',
-    'application/vnd.google-apps.shortcut',
+  'application/vnd.google-apps.folder',
+  'application/vnd.google-apps.shortcut',
 ]);
 
 // Tope defensivo de páginas. Con pageSize=100 cubre 10.000 actividades en un
@@ -40,38 +42,38 @@ const MAX_PAGES = 100;
 
 // Mapeo de mimeType de Google Workspace a nombre de aplicación legible
 const MIME_TO_APP = {
-    'application/vnd.google-apps.document':     'Google Docs',
-    'application/vnd.google-apps.spreadsheet':  'Google Sheets',
-    'application/vnd.google-apps.presentation': 'Google Slides',
-    'application/vnd.google-apps.form':         'Google Forms',
-    'application/vnd.google-apps.drawing':      'Google Drawings',
-    'application/vnd.google-apps.script':       'Apps Script',
-    'application/vnd.google-apps.site':         'Google Sites',
-    'application/vnd.google-apps.jam':          'Google Jamboard',
+  'application/vnd.google-apps.document': 'Google Docs',
+  'application/vnd.google-apps.spreadsheet': 'Google Sheets',
+  'application/vnd.google-apps.presentation': 'Google Slides',
+  'application/vnd.google-apps.form': 'Google Forms',
+  'application/vnd.google-apps.drawing': 'Google Drawings',
+  'application/vnd.google-apps.script': 'Apps Script',
+  'application/vnd.google-apps.site': 'Google Sites',
+  'application/vnd.google-apps.jam': 'Google Jamboard',
 };
 
 // Mapeo de mimeType al activityType que se persiste en DailyActivity.
 // Permite al timeline mostrar el ícono/label correcto sin leer metadata.
 // Los tipos que no están en la lista caen al valor genérico 'file'.
 const MIME_TO_ACTIVITY_TYPE = {
-    'application/vnd.google-apps.document':     'document',
-    'application/vnd.google-apps.spreadsheet':  'spreadsheet',
-    'application/vnd.google-apps.presentation': 'presentation',
-    'application/vnd.google-apps.form':         'form',
-    'application/vnd.google-apps.drawing':      'drawing',
-    'application/vnd.google-apps.script':       'script',
+  'application/vnd.google-apps.document': 'document',
+  'application/vnd.google-apps.spreadsheet': 'spreadsheet',
+  'application/vnd.google-apps.presentation': 'presentation',
+  'application/vnd.google-apps.form': 'form',
+  'application/vnd.google-apps.drawing': 'drawing',
+  'application/vnd.google-apps.script': 'script',
 };
 
 const ACTION_LABELS = {
-    edit:             'Editó',
-    create:           'Creó',
-    rename:           'Renombró',
-    permissionChange: 'Cambió permisos de',
-    comment:          'Comentó en',
-    suggestion:       'Sugirió en',
-    move:             'Movió',
-    delete:           'Eliminó',
-    restore:          'Restauró',
+  edit: 'Editó',
+  create: 'Creó',
+  rename: 'Renombró',
+  permissionChange: 'Cambió permisos de',
+  comment: 'Comentó en',
+  suggestion: 'Sugirió en',
+  move: 'Movió',
+  delete: 'Eliminó',
+  restore: 'Restauró',
 };
 
 // Tope de llamadas simultáneas a la Drive API al enriquecer el resumen. Evita
@@ -88,18 +90,18 @@ const SCOPE_CONCURRENCY = 5;
 // principal: la consolidación legacy de la principal devuelve solo la acción
 // primaria por archivo; estas recuperan las acciones suprimidas.
 const ACTION_FILTERS = [
-    'EDIT',
-    'CREATE',
-    'RENAME',
-    'COMMENT',
-    'PERMISSION_CHANGE',
-    'MOVE',
-    'DELETE',
+  'EDIT',
+  'CREATE',
+  'RENAME',
+  'COMMENT',
+  'PERMISSION_CHANGE',
+  'MOVE',
+  'DELETE',
 ];
 
 // Estimación de duración de trabajo por archivo:
 // se suma a la última acción para dar un buffer de "cierre de pestaña".
-const WORK_BUFFER_MS = 5 * 60 * 1000;        // 5 min
+const WORK_BUFFER_MS = 5 * 60 * 1000; // 5 min
 
 // Tope de duración estimada por archivo en una misma ventana de sync.
 // Evita que un archivo con acciones muy separadas infle el timeline.
@@ -123,29 +125,27 @@ const MAX_WINDOW_MS = 31 * 24 * 60 * 60 * 1000; // 31 días
  * @returns {{actionType: string, fileId: string|null, mimeType: string|null, title: string|null}|null}
  */
 const extractDriveTarget = (activity) => {
-    const actionType = activity.primaryActionDetail
-        ? Object.keys(activity.primaryActionDetail)[0]
-        : null;
-    if (!actionType) return null;
+  const actionType = activity.primaryActionDetail
+    ? Object.keys(activity.primaryActionDetail)[0]
+    : null;
+  if (!actionType) return null;
 
-    const rawTarget = activity.targets?.[0];
-    if (!rawTarget) return null;
+  const rawTarget = activity.targets?.[0];
+  if (!rawTarget) return null;
 
-    // Los comentarios apuntan a fileComment; el driveItem padre es el archivo real
-    const target = rawTarget.driveItem
-        ?? rawTarget.fileComment?.parent
-        ?? null;
-    if (!target) return null;
+  // Los comentarios apuntan a fileComment; el driveItem padre es el archivo real
+  const target = rawTarget.driveItem ?? rawTarget.fileComment?.parent ?? null;
+  if (!target) return null;
 
-    const mimeType = target.mimeType || null;
-    if (EXCLUDED_MIME_TYPES.has(mimeType)) return null;
+  const mimeType = target.mimeType || null;
+  if (EXCLUDED_MIME_TYPES.has(mimeType)) return null;
 
-    return {
-        actionType,
-        fileId: target.name?.replace('items/', '') || null,
-        mimeType,
-        title: sanitizeText(target.title, MAX_TITLE_CHARS) || null,
-    };
+  return {
+    actionType,
+    fileId: target.name?.replace('items/', '') || null,
+    mimeType,
+    title: sanitizeText(target.title, MAX_TITLE_CHARS) || null,
+  };
 };
 
 /**
@@ -153,29 +153,32 @@ const extractDriveTarget = (activity) => {
  * los resultados. Usado internamente por getDriveActivitiesForDay.
  */
 const queryDriveActivityPaginated = async (driveactivity, requestBody) => {
-    const activities = [];
-    let nextPageToken = null;
-    let pages = 0;
+  const activities = [];
+  let nextPageToken = null;
+  let pages = 0;
 
-    do {
-        const response = await driveactivity.activity.query({
-            requestBody: {
-                ...requestBody,
-                ...(nextPageToken && { pageToken: nextPageToken }),
-            },
-        });
+  do {
+    const response = await driveactivity.activity.query({
+      requestBody: {
+        ...requestBody,
+        ...(nextPageToken && { pageToken: nextPageToken }),
+      },
+    });
 
-        const page = response.data.activities || [];
-        activities.push(...page);
-        nextPageToken = response.data.nextPageToken || null;
-        pages += 1;
-    } while (nextPageToken && pages < MAX_PAGES);
+    const page = response.data.activities || [];
+    activities.push(...page);
+    nextPageToken = response.data.nextPageToken || null;
+    pages += 1;
+  } while (nextPageToken && pages < MAX_PAGES);
 
-    if (nextPageToken) {
-        logger.warn('Tope de páginas de Drive Activity alcanzado', { pages, collected: activities.length });
-    }
+  if (nextPageToken) {
+    logger.warn('Tope de páginas de Drive Activity alcanzado', {
+      pages,
+      collected: activities.length,
+    });
+  }
 
-    return activities;
+  return activities;
 };
 
 /**
@@ -185,26 +188,43 @@ const queryDriveActivityPaginated = async (driveactivity, requestBody) => {
  * conmigo") infle la duración al acumularse dos veces.
  */
 const activityKey = (activity) => {
-    const actionType = Object.keys(activity.primaryActionDetail || {})[0];
-    const fileId = activity.targets?.[0]?.driveItem?.name
-        ?? activity.targets?.[0]?.fileComment?.parent?.name;
-    const instant = activity.timeRange?.startTime ?? activity.timestamp ?? '';
-    return `${fileId}__${actionType}__${instant}`;
+  const actionType = Object.keys(activity.primaryActionDetail || {})[0];
+  const fileId =
+    activity.targets?.[0]?.driveItem?.name ?? activity.targets?.[0]?.fileComment?.parent?.name;
+  const instant = activity.timeRange?.startTime ?? activity.timestamp ?? '';
+  return `${fileId}__${actionType}__${instant}`;
 };
 
 /**
- * Indica si una actividad fue realizada por el usuario autenticado. La Drive
- * Activity API marca al actor propio con `knownUser.isCurrentUser`. Las
- * actividades de otros colaboradores, del sistema o anónimas se descartan: no
- * son trabajo atribuible al empleado. Aplica a TODAS las ubicaciones, incluida
- * "Mi unidad".
+ * Indica si una actividad fue realizada por el usuario autenticado.
+ *
+ * La Drive Activity API marca al actor propio con `knownUser.isCurrentUser`,
+ * PERO solo de forma confiable cuando se consulta "Mi unidad" (ancestorName
+ * items/root). Al consultar un documento fuera de "Mi unidad" por `itemName`
+ * (Compartido conmigo / Unidad compartida), la misma actividad del usuario
+ * vuelve con `knownUser.isCurrentUser` ausente y solo el `personName`
+ * (`people/{accountId}`). Por eso, además del flag, se compara el `personName`
+ * contra el conjunto de identidades propias (`selfPersonNames`): el del usuario
+ * (`people/{googleId}`) más los `personName` que la API sí marcó como propios en
+ * otras ubicaciones. Sin esto, toda la actividad fuera de "Mi unidad" se
+ * descartaba (bug F-DRIVE-02). Las acciones de otros colaboradores, del sistema
+ * o anónimas se siguen descartando.
  *
  * @param {object} activity - DriveActivity cruda de la API
+ * @param {Set<string>} [selfPersonNames] - personName (`people/{id}`) del propio usuario
  * @returns {boolean}
  */
-const isCurrentUserActivity = (activity) =>
-    Array.isArray(activity?.actors)
-    && activity.actors.some((a) => a?.user?.knownUser?.isCurrentUser === true);
+const isCurrentUserActivity = (activity, selfPersonNames = null) => {
+  if (!Array.isArray(activity?.actors)) return false;
+  return activity.actors.some((a) => {
+    const knownUser = a?.user?.knownUser;
+    if (!knownUser) return false;
+    if (knownUser.isCurrentUser === true) return true;
+    return Boolean(
+      selfPersonNames && knownUser.personName && selfPersonNames.has(knownUser.personName),
+    );
+  });
+};
 
 /**
  * Ejecuta, para un scope dado (`{ancestorName}` o `{itemName}`), la query
@@ -220,41 +240,43 @@ const isCurrentUserActivity = (activity) =>
  * @returns {Promise<object[]>}
  */
 const runActivityQueriesForScope = async (driveactivity, scope, timeFilter) => {
-    const [mainActivities, ...perActionResults] = await Promise.all([
-        queryDriveActivityPaginated(driveactivity, {
-            ...scope,
-            filter: timeFilter,
-            consolidationStrategy: { legacy: {} },
-            pageSize: 100,
-        }),
-        ...ACTION_FILTERS.map((action) =>
-            queryDriveActivityPaginated(driveactivity, {
-                ...scope,
-                filter: `${timeFilter} AND detail.action_detail_case:${action}`,
-                consolidationStrategy: { legacy: {} },
-                pageSize: 100,
-            })
-        ),
-    ]);
+  const [mainActivities, ...perActionResults] = await Promise.all([
+    queryDriveActivityPaginated(driveactivity, {
+      ...scope,
+      filter: timeFilter,
+      consolidationStrategy: { legacy: {} },
+      pageSize: 100,
+    }),
+    ...ACTION_FILTERS.map((action) =>
+      queryDriveActivityPaginated(driveactivity, {
+        ...scope,
+        filter: `${timeFilter} AND detail.action_detail_case:${action}`,
+        consolidationStrategy: { legacy: {} },
+        pageSize: 100,
+      }),
+    ),
+  ]);
 
-    // Claves fileId+actionType ya presentes en la query principal.
-    const mainKeys = new Set(
-        mainActivities.map((a) => {
-            const actionType = Object.keys(a.primaryActionDetail || {})[0];
-            const fileId = a.targets?.[0]?.driveItem?.name;
-            return `${fileId}__${actionType}`;
-        }).filter((k) => !k.startsWith('undefined'))
-    );
-
-    // Agregar solo los que la query principal no trajo para ese fileId+actionType.
-    const extraActivities = perActionResults.flat().filter((a) => {
+  // Claves fileId+actionType ya presentes en la query principal.
+  const mainKeys = new Set(
+    mainActivities
+      .map((a) => {
         const actionType = Object.keys(a.primaryActionDetail || {})[0];
         const fileId = a.targets?.[0]?.driveItem?.name;
-        if (!fileId || !actionType) return false;
-        return !mainKeys.has(`${fileId}__${actionType}`);
-    });
+        return `${fileId}__${actionType}`;
+      })
+      .filter((k) => !k.startsWith('undefined')),
+  );
 
-    return [...mainActivities, ...extraActivities];
+  // Agregar solo los que la query principal no trajo para ese fileId+actionType.
+  const extraActivities = perActionResults.flat().filter((a) => {
+    const actionType = Object.keys(a.primaryActionDetail || {})[0];
+    const fileId = a.targets?.[0]?.driveItem?.name;
+    if (!fileId || !actionType) return false;
+    return !mainKeys.has(`${fileId}__${actionType}`);
+  });
+
+  return [...mainActivities, ...extraActivities];
 };
 
 /**
@@ -280,42 +302,45 @@ const runActivityQueriesForScope = async (driveactivity, scope, timeFilter) => {
  * @returns {Promise<object[]>} - Array de DriveActivity crudos de la API
  */
 const getDriveActivitiesForDay = async (refreshToken, timeMin, timeMax) => {
-    try {
-        const auth = getAuthenticatedGoogleClient(refreshToken);
-        const driveactivity = google.driveactivity({ version: 'v2', auth });
-        const timeFilter = `time >= "${timeMin}" AND time < "${timeMax}"`;
+  try {
+    const auth = getAuthenticatedGoogleClient(refreshToken);
+    const driveactivity = google.driveactivity({ version: 'v2', auth });
+    const timeFilter = `time >= "${timeMin}" AND time < "${timeMax}"`;
 
-        const scopes = await buildDriveScopes(refreshToken);
+    const scopes = await buildDriveScopes(refreshToken, timeMin, timeMax);
 
-        const perScope = await mapWithConcurrency(scopes, SCOPE_CONCURRENCY, async (scope) => {
-            try {
-                return await runActivityQueriesForScope(driveactivity, scope, timeFilter);
-            } catch (error) {
-                // RN-D05: un scope que falla se omite; la recolección continúa.
-                logger.warn('Scope de Drive omitido por error en la consulta', {
-                    scope,
-                    message: error.message,
-                    code: error.code,
-                });
-                return [];
-            }
+    const perScope = await mapWithConcurrency(scopes, SCOPE_CONCURRENCY, async (scope) => {
+      try {
+        return await runActivityQueriesForScope(driveactivity, scope, timeFilter);
+      } catch (error) {
+        // RN-D05: un scope que falla se omite; la recolección continúa.
+        logger.warn('Scope de Drive omitido por error en la consulta', {
+          scope,
+          message: error.message,
+          code: error.code,
         });
+        return [];
+      }
+    });
 
-        // Unir todos los scopes y deduplicar (un archivo puede aparecer en más de uno).
-        const seen = new Set();
-        const merged = [];
-        for (const activity of perScope.flat()) {
-            const key = activityKey(activity);
-            if (seen.has(key)) continue;
-            seen.add(key);
-            merged.push(activity);
-        }
-
-        return merged;
-    } catch (error) {
-        logger.error('Error al obtener actividades de Drive', { message: error.message, code: error.code });
-        throw new Error('Error al obtener actividades de Drive', { cause: error });
+    // Unir todos los scopes y deduplicar (un archivo puede aparecer en más de uno).
+    const seen = new Set();
+    const merged = [];
+    for (const activity of perScope.flat()) {
+      const key = activityKey(activity);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push(activity);
     }
+
+    return merged;
+  } catch (error) {
+    logger.error('Error al obtener actividades de Drive', {
+      message: error.message,
+      code: error.code,
+    });
+    throw new Error('Error al obtener actividades de Drive', { cause: error });
+  }
 };
 
 /**
@@ -344,88 +369,98 @@ const SESSION_GAP_MS = 30 * 60 * 1000; // 30 min
 
 // Acciones instantáneas: cada ocurrencia es un registro fijo de WORK_BUFFER_MS (5 min),
 // sin importar cuánto tiempo pasó entre ellas.
-const INSTANT_ACTIONS = new Set(['create', 'rename', 'delete', 'move', 'restore', 'permissionChange']);
+const INSTANT_ACTIONS = new Set([
+  'create',
+  'rename',
+  'delete',
+  'move',
+  'restore',
+  'permissionChange',
+]);
 
 const buildWorkEstimates = (byFile, userId, windowDate) => {
-    const records = [];
+  const records = [];
 
-    for (const [, data] of byFile) {
-        const fileType = MIME_TO_ACTIVITY_TYPE[data.mimeType] ?? 'file';
-        const actionLabel = ACTION_LABELS[data.actionType] ?? data.actionType;
-        const title = data.title ? `${actionLabel} "${data.title}"` : actionLabel;
+  for (const [, data] of byFile) {
+    const fileType = MIME_TO_ACTIVITY_TYPE[data.mimeType] ?? 'file';
+    const actionLabel = ACTION_LABELS[data.actionType] ?? data.actionType;
+    const title = data.title ? `${actionLabel} "${data.title}"` : actionLabel;
 
-        if (INSTANT_ACTIONS.has(data.actionType)) {
-            // Deduplicar por startMs: la API puede devolver el mismo evento dos veces.
-            const seen = new Set();
-            const unique = data.intervals.filter(({ startMs }) => {
-                if (seen.has(startMs)) return false;
-                seen.add(startMs);
-                return true;
-            });
-            const sorted = unique.sort((a, b) => a.startMs - b.startMs);
-            sorted.forEach(({ startMs }, idx) => {
-                const startTime = new Date(startMs);
-                const endTime   = new Date(startMs + WORK_BUFFER_MS);
-                const suffix = sorted.length > 1 ? `_s${idx + 1}` : '';
-                const externalId = `file_${data.fileId}_${data.actionType}_${windowDate}${suffix}`;
+    if (INSTANT_ACTIONS.has(data.actionType)) {
+      // Deduplicar por startMs: la API puede devolver el mismo evento dos veces.
+      const seen = new Set();
+      const unique = data.intervals.filter(({ startMs }) => {
+        if (seen.has(startMs)) return false;
+        seen.add(startMs);
+        return true;
+      });
+      const sorted = unique.sort((a, b) => a.startMs - b.startMs);
+      sorted.forEach(({ startMs }, idx) => {
+        const startTime = new Date(startMs);
+        const endTime = new Date(startMs + WORK_BUFFER_MS);
+        const suffix = sorted.length > 1 ? `_s${idx + 1}` : '';
+        const externalId = `file_${data.fileId}_${data.actionType}_${windowDate}${suffix}`;
 
-                records.push({
-                    userId,
-                    source: 'drive',
-                    activityType: data.actionType,
-                    fileType,
-                    externalId,
-                    startTime,
-                    endTime,
-                    title,
-                    metadata: { title, fileId: data.fileId, mimeType: data.mimeType },
-                });
-            });
-        } else {
-            // Acciones continuas (edit, comment): agrupar por sesión según SESSION_GAP_MS.
-            // Si la API provee endTime en el intervalo, se usa directamente.
-            const sorted = [...data.intervals].sort((a, b) => a.startMs - b.startMs);
-            const sessions = [];
-            let current = [sorted[0]];
-            for (let i = 1; i < sorted.length; i++) {
-                if (sorted[i].startMs - sorted[i - 1].startMs > SESSION_GAP_MS) {
-                    sessions.push(current);
-                    current = [];
-                }
-                current.push(sorted[i]);
-            }
-            sessions.push(current);
-
-            sessions.forEach((session, idx) => {
-                const firstMs = session[0].startMs;
-                // Usar el endMs más tardío del grupo si la API lo provee;
-                // si no, caer al startMs más tardío + buffer.
-                const lastStartMs = session[session.length - 1].startMs;
-                const lastEndMs   = session.reduce((max, iv) => iv.endMs ? Math.max(max, iv.endMs) : max, 0);
-                const sessionEnd = lastEndMs > 0 ? lastEndMs : lastStartMs;
-                const rawEnd = Math.max(sessionEnd, firstMs + WORK_BUFFER_MS);
-
-                const startTime = new Date(firstMs);
-                const endTime   = new Date(Math.min(rawEnd, firstMs + MAX_WORK_DURATION_MS));
-                const suffix = sessions.length > 1 ? `_s${idx + 1}` : '';
-                const externalId = `file_${data.fileId}_${data.actionType}_${windowDate}${suffix}`;
-
-                records.push({
-                    userId,
-                    source: 'drive',
-                    activityType: data.actionType,
-                    fileType,
-                    externalId,
-                    startTime,
-                    endTime,
-                    title,
-                    metadata: { title, fileId: data.fileId, mimeType: data.mimeType },
-                });
-            });
+        records.push({
+          userId,
+          source: 'drive',
+          activityType: data.actionType,
+          fileType,
+          externalId,
+          startTime,
+          endTime,
+          title,
+          metadata: { title, fileId: data.fileId, mimeType: data.mimeType },
+        });
+      });
+    } else {
+      // Acciones continuas (edit, comment): agrupar por sesión según SESSION_GAP_MS.
+      // Si la API provee endTime en el intervalo, se usa directamente.
+      const sorted = [...data.intervals].sort((a, b) => a.startMs - b.startMs);
+      const sessions = [];
+      let current = [sorted[0]];
+      for (let i = 1; i < sorted.length; i++) {
+        if (sorted[i].startMs - sorted[i - 1].startMs > SESSION_GAP_MS) {
+          sessions.push(current);
+          current = [];
         }
-    }
+        current.push(sorted[i]);
+      }
+      sessions.push(current);
 
-    return records;
+      sessions.forEach((session, idx) => {
+        const firstMs = session[0].startMs;
+        // Usar el endMs más tardío del grupo si la API lo provee;
+        // si no, caer al startMs más tardío + buffer.
+        const lastStartMs = session[session.length - 1].startMs;
+        const lastEndMs = session.reduce(
+          (max, iv) => (iv.endMs ? Math.max(max, iv.endMs) : max),
+          0,
+        );
+        const sessionEnd = lastEndMs > 0 ? lastEndMs : lastStartMs;
+        const rawEnd = Math.max(sessionEnd, firstMs + WORK_BUFFER_MS);
+
+        const startTime = new Date(firstMs);
+        const endTime = new Date(Math.min(rawEnd, firstMs + MAX_WORK_DURATION_MS));
+        const suffix = sessions.length > 1 ? `_s${idx + 1}` : '';
+        const externalId = `file_${data.fileId}_${data.actionType}_${windowDate}${suffix}`;
+
+        records.push({
+          userId,
+          source: 'drive',
+          activityType: data.actionType,
+          fileType,
+          externalId,
+          startTime,
+          endTime,
+          title,
+          metadata: { title, fileId: data.fileId, mimeType: data.mimeType },
+        });
+      });
+    }
+  }
+
+  return records;
 };
 
 /**
@@ -445,114 +480,140 @@ const buildWorkEstimates = (byFile, userId, windowDate) => {
  * @throws {InvalidWindowError} si la ventana es inválida.
  */
 const persistDriveActivities = async (userId, refreshToken, startTime, endTime) => {
-    // La ventana llega ya resuelta a instantes absolutos (UTC). El caller —hoy
-    // el endpoint para probar por Postman, mañana el batch— es responsable de
-    // armarla a partir de la jornada laboral del usuario (hora inicio/fin + TZ
-    // que vivirán en la BD). Acá solo se valida y se usa.
-    const start = new Date(startTime);
-    const end = new Date(endTime);
-    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start >= end) {
-        throw new InvalidWindowError();
+  // La ventana llega ya resuelta a instantes absolutos (UTC). El caller —hoy
+  // el endpoint para probar por Postman, mañana el batch— es responsable de
+  // armarla a partir de la jornada laboral del usuario (hora inicio/fin + TZ
+  // que vivirán en la BD). Acá solo se valida y se usa.
+  const start = new Date(startTime);
+  const end = new Date(endTime);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start >= end) {
+    throw new InvalidWindowError();
+  }
+  if (end.getTime() - start.getTime() > MAX_WINDOW_MS) {
+    throw new InvalidWindowError('Ventana demasiado amplia: el máximo permitido es 31 días');
+  }
+  const timeMin = start.toISOString();
+  const timeMax = end.toISOString();
+
+  // Fecha local de la ventana (YYYY-MM-DD) usada en el externalId.
+  // Se toma del inicio de la ventana en UTC: un sync por jornada laboral
+  // siempre cae en el mismo día calendario.
+  const windowDate = start.toISOString().slice(0, 10);
+
+  const rawActivities = await getDriveActivitiesForDay(refreshToken, timeMin, timeMax);
+
+  // Identidades propias para la atribución fuera de "Mi unidad" (ver
+  // isCurrentUserActivity). Se combinan dos fuentes:
+  //   1. people/{googleId}: el sub de Google del usuario, que coincide con el
+  //      personName que la Activity API usa para el actor.
+  //   2. El personName de toda actividad que la API SÍ marcó isCurrentUser
+  //      (típicamente en "Mi unidad"): revela el personName real del usuario,
+  //      que es el mismo con el que vuelve —sin el flag— en docs compartidos.
+  const dbUser = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { googleId: true },
+  });
+  const selfPersonNames = new Set();
+  if (dbUser?.googleId) selfPersonNames.add(`people/${dbUser.googleId}`);
+  for (const activity of rawActivities) {
+    for (const actor of activity.actors || []) {
+      const knownUser = actor?.user?.knownUser;
+      if (knownUser?.isCurrentUser === true && knownUser.personName) {
+        selfPersonNames.add(knownUser.personName);
+      }
     }
-    if (end.getTime() - start.getTime() > MAX_WINDOW_MS) {
-        throw new InvalidWindowError('Ventana demasiado amplia: el máximo permitido es 31 días');
+  }
+
+  // Atribución (RN-D02/D03): solo se persiste lo que hizo el propio empleado.
+  // Las acciones de otros colaboradores sobre documentos compartidos, del
+  // sistema o anónimas se descartan. Aplica a todas las ubicaciones.
+  const ownActivities = rawActivities.filter((a) => isCurrentUserActivity(a, selfPersonNames));
+  const discarded = rawActivities.length - ownActivities.length;
+  if (discarded > 0) {
+    logger.info?.('Actividades de Drive descartadas por actor ajeno', { userId, discarded });
+  }
+
+  // Acumular timestamps por archivo+acción — cada tipo de acción sobre un
+  // archivo genera un registro separado en el timeline.
+  const byFile = new Map();
+
+  for (const activity of ownActivities) {
+    const extracted = extractDriveTarget(activity);
+    if (!extracted) continue;
+
+    const { actionType, fileId, mimeType, title } = extracted;
+    if (!fileId) continue;
+
+    // La API devuelve timestamp (evento puntual) o timeRange (sesión de trabajo).
+    // Guardamos inicio y fin explícito cuando está disponible.
+    const startMs = activity.timeRange
+      ? new Date(activity.timeRange.startTime).getTime()
+      : new Date(activity.timestamp).getTime();
+    const endMs = activity.timeRange?.endTime
+      ? new Date(activity.timeRange.endTime).getTime()
+      : null;
+
+    // Clave compuesta: fileId + actionType → un registro por acción por archivo
+    const key = `${fileId}__${actionType}`;
+    if (!byFile.has(key)) {
+      byFile.set(key, { fileId, actionType, mimeType, title, intervals: [] });
     }
-    const timeMin = start.toISOString();
-    const timeMax = end.toISOString();
+    const entry = byFile.get(key);
+    entry.intervals.push({ startMs, endMs });
+    if (!entry.title && title) entry.title = title;
+  }
 
-    // Fecha local de la ventana (YYYY-MM-DD) usada en el externalId.
-    // Se toma del inicio de la ventana en UTC: un sync por jornada laboral
-    // siempre cae en el mismo día calendario.
-    const windowDate = start.toISOString().slice(0, 10);
+  if (byFile.size === 0) {
+    return {
+      created: 0,
+      updated: 0,
+      message: 'No se encontraron actividades relevantes de Drive para guardar',
+    };
+  }
 
-    const rawActivities = await getDriveActivitiesForDay(refreshToken, timeMin, timeMax);
+  const activitiesToSave = buildWorkEstimates(byFile, userId, windowDate);
 
-    // Atribución (RN-D02/D03): solo se persiste lo que hizo el propio empleado.
-    // Las acciones de otros colaboradores sobre documentos compartidos, del
-    // sistema o anónimas se descartan. Aplica a todas las ubicaciones.
-    const ownActivities = rawActivities.filter(isCurrentUserActivity);
-    const discarded = rawActivities.length - ownActivities.length;
-    if (discarded > 0) {
-        logger.info?.('Actividades de Drive descartadas por actor ajeno', { userId, discarded });
-    }
+  // Determinar cuáles externalIds ya existen para separar creates de updates.
+  const externalIds = activitiesToSave.map((r) => r.externalId);
+  const existing = await prisma.dailyActivity.findMany({
+    where: { userId, source: 'drive', externalId: { in: externalIds } },
+    select: { externalId: true },
+  });
+  const existingSet = new Set(existing.map((r) => r.externalId));
 
-    // Acumular timestamps por archivo+acción — cada tipo de acción sobre un
-    // archivo genera un registro separado en el timeline.
-    const byFile = new Map();
+  await prisma.$transaction(
+    activitiesToSave.map((record) =>
+      prisma.dailyActivity.upsert({
+        where: {
+          userId_source_externalId: {
+            userId: record.userId,
+            source: record.source,
+            externalId: record.externalId,
+          },
+        },
+        create: record,
+        update: {
+          startTime: record.startTime,
+          endTime: record.endTime,
+          activityType: record.activityType,
+          fileType: record.fileType,
+          title: record.title,
+          metadata: record.metadata,
+        },
+      }),
+    ),
+  );
 
-    for (const activity of ownActivities) {
-        const extracted = extractDriveTarget(activity);
-        if (!extracted) continue;
+  const created = activitiesToSave.filter((r) => !existingSet.has(r.externalId)).length;
+  const updated = activitiesToSave.length - created;
 
-        const { actionType, fileId, mimeType, title } = extracted;
-        if (!fileId) continue;
-
-        // La API devuelve timestamp (evento puntual) o timeRange (sesión de trabajo).
-        // Guardamos inicio y fin explícito cuando está disponible.
-        const startMs = activity.timeRange
-            ? new Date(activity.timeRange.startTime).getTime()
-            : new Date(activity.timestamp).getTime();
-        const endMs = activity.timeRange?.endTime
-            ? new Date(activity.timeRange.endTime).getTime()
-            : null;
-
-        // Clave compuesta: fileId + actionType → un registro por acción por archivo
-        const key = `${fileId}__${actionType}`;
-        if (!byFile.has(key)) {
-            byFile.set(key, { fileId, actionType, mimeType, title, intervals: [] });
-        }
-        const entry = byFile.get(key);
-        entry.intervals.push({ startMs, endMs });
-        if (!entry.title && title) entry.title = title;
-    }
-
-    if (byFile.size === 0) {
-        return { created: 0, updated: 0, message: 'No se encontraron actividades relevantes de Drive para guardar' };
-    }
-
-    const activitiesToSave = buildWorkEstimates(byFile, userId, windowDate);
-
-    // Determinar cuáles externalIds ya existen para separar creates de updates.
-    const externalIds = activitiesToSave.map((r) => r.externalId);
-    const existing = await prisma.dailyActivity.findMany({
-        where: { userId, source: 'drive', externalId: { in: externalIds } },
-        select: { externalId: true },
-    });
-    const existingSet = new Set(existing.map((r) => r.externalId));
-
-    await prisma.$transaction(
-        activitiesToSave.map((record) =>
-            prisma.dailyActivity.upsert({
-                where: {
-                    userId_source_externalId: {
-                        userId: record.userId,
-                        source: record.source,
-                        externalId: record.externalId,
-                    },
-                },
-                create: record,
-                update: {
-                    startTime:    record.startTime,
-                    endTime:      record.endTime,
-                    activityType: record.activityType,
-                    fileType:     record.fileType,
-                    title:        record.title,
-                    metadata:     record.metadata,
-                },
-            })
-        )
-    );
-
-    const created = activitiesToSave.filter((r) => !existingSet.has(r.externalId)).length;
-    const updated = activitiesToSave.length - created;
-
-    if (created === 0 && updated > 0) {
-        return { created: 0, updated, message: `${updated} actividades actualizadas` };
-    }
-    if (updated === 0) {
-        return { created, updated: 0, message: `${created} actividades guardadas` };
-    }
-    return { created, updated, message: `${created} actividades guardadas, ${updated} actualizadas` };
+  if (created === 0 && updated > 0) {
+    return { created: 0, updated, message: `${updated} actividades actualizadas` };
+  }
+  if (updated === 0) {
+    return { created, updated: 0, message: `${created} actividades guardadas` };
+  }
+  return { created, updated, message: `${created} actividades guardadas, ${updated} actualizadas` };
 };
 
 // TODO (incremental): summarizeDriveActivities y enrichDriveActivitySummary todavía
@@ -588,42 +649,42 @@ const persistDriveActivities = async (userId, refreshToken, startTime, endTime) 
  * }>}
  */
 const summarizeDriveActivities = (rawActivities) => {
-    // fileId → acumulador de conteos
-    const byFile = new Map();
+  // fileId → acumulador de conteos
+  const byFile = new Map();
 
-    for (const activity of rawActivities) {
-        const extracted = extractDriveTarget(activity);
-        if (!extracted) continue;
+  for (const activity of rawActivities) {
+    const extracted = extractDriveTarget(activity);
+    if (!extracted) continue;
 
-        const { actionType, fileId, mimeType, title } = extracted;
-        if (!fileId) continue;
+    const { actionType, fileId, mimeType, title } = extracted;
+    if (!fileId) continue;
 
-        if (!byFile.has(fileId)) {
-            byFile.set(fileId, {
-                fileId,
-                title,
-                mimeType,
-                editCount: 0,
-                commentCount: 0,
-                shareCount: 0,
-            });
-        }
-
-        const entry = byFile.get(fileId);
-
-        if (EDIT_ACTIONS.has(actionType)) {
-            entry.editCount += 1;
-        } else if (COMMENT_ACTIONS.has(actionType)) {
-            entry.commentCount += 1;
-        } else if (SHARE_ACTIONS.has(actionType)) {
-            entry.shareCount += 1;
-        }
+    if (!byFile.has(fileId)) {
+      byFile.set(fileId, {
+        fileId,
+        title,
+        mimeType,
+        editCount: 0,
+        commentCount: 0,
+        shareCount: 0,
+      });
     }
 
-    return Array.from(byFile.values()).map((entry) => ({
-        ...entry,
-        totalActions: entry.editCount + entry.commentCount + entry.shareCount,
-    }));
+    const entry = byFile.get(fileId);
+
+    if (EDIT_ACTIONS.has(actionType)) {
+      entry.editCount += 1;
+    } else if (COMMENT_ACTIONS.has(actionType)) {
+      entry.commentCount += 1;
+    } else if (SHARE_ACTIONS.has(actionType)) {
+      entry.shareCount += 1;
+    }
+  }
+
+  return Array.from(byFile.values()).map((entry) => ({
+    ...entry,
+    totalActions: entry.editCount + entry.commentCount + entry.shareCount,
+  }));
 };
 
 /**
@@ -642,63 +703,63 @@ const summarizeDriveActivities = (rawActivities) => {
  * @returns {Promise<Array<{fileId: string, title: string|null, mimeType: string|null, webViewLink: string|null, app: string|null, editCount: number, commentCount: number, shareCount: number, totalActions: number}>>}
  */
 const enrichDriveActivitySummary = async (summary, refreshToken) => {
-    if (summary.length === 0) return [];
+  if (summary.length === 0) return [];
 
-    const auth = getAuthenticatedGoogleClient(refreshToken);
-    const drive = google.drive({ version: 'v3', auth });
+  const auth = getAuthenticatedGoogleClient(refreshToken);
+  const drive = google.drive({ version: 'v3', auth });
 
-    // Concurrencia acotada: limita cuántos files.get corren en simultáneo para no
-    // gatillar rate limits de Drive. No se pierde data: se llama igual por cada
-    // archivo, solo cambia cuántos van a la vez. Cada llamada se envuelve para
-    // emular la forma { status, value | reason } de Promise.allSettled.
-    const results = await mapWithConcurrency(summary, ENRICH_CONCURRENCY, (entry) =>
-        drive.files
-            .get({
-                fileId: entry.fileId,
-                fields: 'name,mimeType,webViewLink',
-                supportsAllDrives: true,
-            })
-            .then((value) => ({ status: 'fulfilled', value }))
-            .catch((reason) => ({ status: 'rejected', reason })),
-    );
+  // Concurrencia acotada: limita cuántos files.get corren en simultáneo para no
+  // gatillar rate limits de Drive. No se pierde data: se llama igual por cada
+  // archivo, solo cambia cuántos van a la vez. Cada llamada se envuelve para
+  // emular la forma { status, value | reason } de Promise.allSettled.
+  const results = await mapWithConcurrency(summary, ENRICH_CONCURRENCY, (entry) =>
+    drive.files
+      .get({
+        fileId: entry.fileId,
+        fields: 'name,mimeType,webViewLink',
+        supportsAllDrives: true,
+      })
+      .then((value) => ({ status: 'fulfilled', value }))
+      .catch((reason) => ({ status: 'rejected', reason })),
+  );
 
-    return summary.map((entry, i) => {
-        const outcome = results[i];
+  return summary.map((entry, i) => {
+    const outcome = results[i];
 
-        if (outcome.status === 'rejected') {
-            logger.warn('No se pudo obtener metadata del archivo de Drive', {
-                fileId: entry.fileId,
-                error: outcome.reason?.message,
-            });
-            // Aun sin metadata fresca conservamos el mimeType del resumen, así
-            // seguimos pudiendo mostrar la app (p. ej. "Google Docs").
-            return { ...entry, webViewLink: null, app: MIME_TO_APP[entry.mimeType] ?? null };
-        }
+    if (outcome.status === 'rejected') {
+      logger.warn('No se pudo obtener metadata del archivo de Drive', {
+        fileId: entry.fileId,
+        error: outcome.reason?.message,
+      });
+      // Aun sin metadata fresca conservamos el mimeType del resumen, así
+      // seguimos pudiendo mostrar la app (p. ej. "Google Docs").
+      return { ...entry, webViewLink: null, app: MIME_TO_APP[entry.mimeType] ?? null };
+    }
 
-        const { name, mimeType, webViewLink } = outcome.value.data;
-        // app se deriva del mimeType resuelto (fresco con fallback al del resumen),
-        // para que nunca queden mimeType y app contradictorios.
-        const resolvedMimeType = mimeType || entry.mimeType;
+    const { name, mimeType, webViewLink } = outcome.value.data;
+    // app se deriva del mimeType resuelto (fresco con fallback al del resumen),
+    // para que nunca queden mimeType y app contradictorios.
+    const resolvedMimeType = mimeType || entry.mimeType;
 
-        return {
-            ...entry,
-            title: sanitizeText(name, MAX_TITLE_CHARS) || entry.title,
-            mimeType: resolvedMimeType,
-            webViewLink: webViewLink || null,
-            app: MIME_TO_APP[resolvedMimeType] ?? null,
-        };
-    });
+    return {
+      ...entry,
+      title: sanitizeText(name, MAX_TITLE_CHARS) || entry.title,
+      mimeType: resolvedMimeType,
+      webViewLink: webViewLink || null,
+      app: MIME_TO_APP[resolvedMimeType] ?? null,
+    };
+  });
 };
 
 module.exports = {
-    getDriveActivitiesForDay,
-    persistDriveActivities,
-    buildWorkEstimates,
-    summarizeDriveActivities,
-    enrichDriveActivitySummary,
-    isCurrentUserActivity,
-    InvalidWindowError,
-    WORK_BUFFER_MS,
-    MAX_WORK_DURATION_MS,
-    MIME_TO_ACTIVITY_TYPE,
+  getDriveActivitiesForDay,
+  persistDriveActivities,
+  buildWorkEstimates,
+  summarizeDriveActivities,
+  enrichDriveActivitySummary,
+  isCurrentUserActivity,
+  InvalidWindowError,
+  WORK_BUFFER_MS,
+  MAX_WORK_DURATION_MS,
+  MIME_TO_ACTIVITY_TYPE,
 };
