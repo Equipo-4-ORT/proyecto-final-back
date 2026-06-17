@@ -112,6 +112,7 @@ const createActivity = async (userId, { activityType, startTime, endTime, metada
     data: {
       userId,
       source: 'manual',
+      title,
       activityType,
       startTime: start,
       endTime: end,

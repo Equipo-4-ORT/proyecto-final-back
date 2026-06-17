@@ -54,7 +54,7 @@ const postActivity = async (req, res) => {
   }
 
   try {
-    const activity = await createActivity(req.user.id, { activityType, startTime, endTime, metadata });
+    const activity = await createActivity(req.user.id, { title, activityType, startTime, endTime, metadata });
     return res.status(201).json(activity);
   } catch (error) {
     logger.error('Error al crear actividad', { error });
