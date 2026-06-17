@@ -1,4 +1,5 @@
 const prisma = require('../../shared/database/prisma');
+const { DateTime } = require('luxon');
 const { getAdapter } = require('../ai/adapters');
 const { dayToUTCRange } = require('../activities/activities.service');
 const { createReportSheet } = require('./reports.sheet');
@@ -192,11 +193,21 @@ const generateReportForDate = async (user, dateStr) => {
     date: dateStr,
   };
 
+  const localizedActivities = dailyActivities.map((act) => ({
+    ...act,
+    startTime: DateTime.fromJSDate(act.startTime)
+      .setZone(config.schedulerTimezone)
+      .toFormat('yyyy-MM-dd HH:mm:ss'), // Le damos el string duro, ej: "2026-06-17 12:00:00"
+    endTime: act.endTime
+      ? DateTime.fromJSDate(act.endTime).setZone(config.schedulerTimezone).toFormat('yyyy-MM-dd HH:mm:ss')
+      : null,
+  }));
+
   // El timeout y los reintentos los maneja el propio adapter (ver
   // REQUEST_TIMEOUT_MS / MAX_RETRIES en los adapters); no duplicamos esa
   // lógica acá para no dejar timers colgados ni competir con sus retries.
   const aiAdapter = getAdapter();
-  const aiOutput = await aiAdapter.generateSummary(dailyActivities, userContext);
+  const aiOutput = await aiAdapter.generateSummary(localizedActivities, userContext);
 
   let savedReport;
   if (existingReport) {
