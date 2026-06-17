@@ -193,7 +193,7 @@ const generateReportForDate = async (user, dateStr) => {
     date: dateStr,
   };
 
-const localizedActivities = dailyActivities.map((act) => ({
+  const localizedActivities = dailyActivities.map((act) => ({
     ...act,
     startTime: DateTime.fromJSDate(act.startTime)
       .setZone(config.schedulerTimezone)
