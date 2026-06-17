@@ -91,7 +91,7 @@ const listActivities = async (userId, filters = {}) => {
 // así que en la práctica siempre hay un valor; esto es defensivo.
 const FALLBACK_DURATION_MINUTES = 60;
 
-const createActivity = async (userId, { activityType, startTime, endTime, metadata }) => {
+const createActivity = async (userId, { title, activityType, startTime, endTime, metadata }) => {
   const start = new Date(startTime);
 
   // Si no vino endTime, la duración la define la preferencia del usuario

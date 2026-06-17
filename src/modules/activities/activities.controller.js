@@ -41,7 +41,7 @@ const getActivities = async (req, res) => {
 };
 
 const postActivity = async (req, res) => {
-  const { activityType, startTime, endTime, metadata } = req.body;
+  const { title,activityType, startTime, endTime, metadata } = req.body;
 
   if (!activityType || !startTime) {
     return res.status(400).json({ error: 'Bad Request', message: 'activityType y startTime son requeridos' });
@@ -54,7 +54,7 @@ const postActivity = async (req, res) => {
   }
 
   try {
-    const activity = await createActivity(req.user.id, { title, activityType, startTime, endTime, metadata });
+    const activity = await createActivity(req.user.id, { title,activityType, startTime, endTime, metadata });
     return res.status(201).json(activity);
   } catch (error) {
     logger.error('Error al crear actividad', { error });
