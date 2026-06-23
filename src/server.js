@@ -2,6 +2,7 @@ require('dotenv').config();
 const app = require('./app');
 const prisma = require('./shared/database/prisma');
 const logger = require('./shared/utils/logger');
+const scheduler = require('./modules/scheduler/scheduler');
 
 const PORT = process.env.PORT || 3000;
 const SHUTDOWN_TIMEOUT_MS = 10000;
@@ -9,6 +10,8 @@ const SHUTDOWN_TIMEOUT_MS = 10000;
 const setupGracefulShutdown = (server) => {
     const gracefulShutdown = (signal) => {
         logger.info(`Recibida señal ${signal}, iniciando shutdown graceful...`);
+
+        scheduler.stop();
 
         server.close(async (err) => {
             if (err) {
@@ -52,6 +55,7 @@ const startServer = async () => {
         });
 
         setupGracefulShutdown(server);
+        scheduler.start();
     } catch (error) {
         logger.error('Error fatal al conectar a la base de datos', { error: error.message, stack: error.stack });
         process.exit(1);

@@ -1,15 +1,16 @@
 {
   "name": "proyecto-final-back",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Repositorio dedicado a la entrega del trabajo de proyecto final de la carrera Analista en sistemas de ORT Belgrano.",
   "main": "src/server.js",
   "scripts": {
+    "postinstall": "prisma generate",
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
     "lint": "eslint src/",
-    "test": "jest",
-    "test:watch": "jest --watch",
-    "test:coverage": "jest --coverage",
+    "test": "jest --runInBand",
+    "test:watch": "jest --watch --runInBand",
+    "test:coverage": "jest --coverage --runInBand",
     "db:migrate": "prisma migrate dev",
     "db:seed": "prisma db seed",
     "db:studio": "prisma studio",
@@ -27,24 +28,32 @@
   },
   "homepage": "https://github.com/FelipeValenzuela00/proyecto-final-back#readme",
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "@prisma/client": "^6.19.3",
+    "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "express-rate-limit": "^7.0.0",
     "google-auth-library": "^10.6.2",
+    "googleapis": "^172.0.0",
     "jsonwebtoken": "^9.0.3",
-    "winston": "^3.19.0"
+    "luxon": "^3.7.2",
+    "node-cron": "^4.2.1",
+    "nodemailer": "^8.0.10",
+    "openai": "^6.39.0",
+    "winston": "^3.19.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "eslint": "^10.2.0",
     "globals": "^17.5.0",
     "jest": "^30.3.0",
-    "supertest": "^7.0.0",
     "nodemon": "^3.1.14",
     "prettier": "^3.8.3",
-    "prisma": "^6.19.3"
+    "prisma": "^6.19.3",
+    "supertest": "^7.0.0"
   },
   "engines": {
     "node": "^20.19.0 || ^22.13.0 || >=24"
@@ -53,7 +62,13 @@
     "seed": "node prisma/seed.js"
   },
   "jest": {
-    "testMatch": ["<rootDir>/tests/**/*.test.js"],
+    "globalSetup": "./tests/globalSetup.js",
+    "setupFiles": [
+      "./tests/setupEnv.js"
+    ],
+    "testMatch": [
+      "<rootDir>/tests/**/*.test.js"
+    ],
     "collectCoverageFrom": [
       "src/**/*.js",
       "!src/server.js",

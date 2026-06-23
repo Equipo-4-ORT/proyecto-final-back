@@ -1,0 +1,104 @@
+{
+  "activities": [
+    {
+      "primaryActionDetail": {
+        "edit": {}
+      },
+      "actors": [
+        {
+          "user": {
+            "knownUser": {
+              "personName": "people/123456"
+            }
+          }
+        }
+      ],
+      "targets": [
+        {
+          "driveItem": {
+            "name": "items/doc1",
+            "title": "Documento de Arquitectura",
+            "mimeType": "application/vnd.google-apps.document"
+          }
+        }
+      ],
+      "timestamp": "2026-05-22T14:30:00.000Z"
+    },
+    {
+      "primaryActionDetail": {
+        "create": {
+          "new": {}
+        }
+      },
+      "actors": [
+        {
+          "user": {
+            "knownUser": {
+              "personName": "people/123456"
+            }
+          }
+        }
+      ],
+      "targets": [
+        {
+          "driveItem": {
+            "name": "items/sheet1",
+            "title": "Planilla de Horas Sprint 3",
+            "mimeType": "application/vnd.google-apps.spreadsheet"
+          }
+        }
+      ],
+      "timestamp": "2026-05-22T09:15:00.000Z"
+    },
+    {
+      "primaryActionDetail": {
+        "comment": {
+          "post": {}
+        }
+      },
+      "actors": [
+        {
+          "user": {
+            "knownUser": {
+              "personName": "people/123456"
+            }
+          }
+        }
+      ],
+      "targets": [
+        {
+          "driveItem": {
+            "name": "items/doc1",
+            "title": "Documento de Arquitectura",
+            "mimeType": "application/vnd.google-apps.document"
+          }
+        }
+      ],
+      "timestamp": "2026-05-22T15:00:00.000Z"
+    },
+    {
+      "primaryActionDetail": {
+        "rename": {}
+      },
+      "actors": [
+        {
+          "user": {
+            "knownUser": {
+              "personName": "people/123456"
+            }
+          }
+        }
+      ],
+      "targets": [
+        {
+          "driveItem": {
+            "name": "items/folder1",
+            "title": "Carpeta Vieja",
+            "mimeType": "application/vnd.google-apps.folder"
+          }
+        }
+      ],
+      "timestamp": "2026-05-22T16:20:00.000Z"
+    }
+  ]
+}

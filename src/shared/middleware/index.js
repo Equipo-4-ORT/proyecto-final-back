@@ -3,6 +3,8 @@ const errorHandler = require('./errorHandler');
 const requireRole = require('./requireRole');
 const authMiddleware = require('./authMiddleware');
 const authErrorHandler = require('./authErrorHandler');
+const requireValidGoogleToken = require('./requireValidGoogleToken');
+const requireActiveUser = require('./requireActiveUser');
 
 module.exports = {
   requestLogger,
@@ -10,4 +12,6 @@ module.exports = {
   requireRole,
   authMiddleware,
   authErrorHandler,
+  requireValidGoogleToken,
+  requireActiveUser,
 };

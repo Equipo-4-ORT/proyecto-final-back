@@ -22,10 +22,14 @@ enum Role {
   ADMIN
 }
 
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+}
+
 enum ReportStatus {
   PENDING
-  EDITED
-  APPROVED
+  SENT
 }
 
 // los modelos
@@ -35,24 +39,85 @@ model User {
   fullName      String?  @map("full_name")
   role          Role     @default(EMPLOYEE)
   googleId      String?  @unique @map("google_id")
-  refreshToken  String?  @map("refresh_token") // Lo guardaremos encriptado luego
+  workStartTime   String   @default("09:00") @map("work_start_time")
+  workEndTime     String   @default("18:00") @map("work_end_time")
+  defaultDuration Int      @default(60) @map("default_duration")
+  avoidOverlaps   Boolean  @default(false) @map("avoid_overlaps")
+  // ⚠️ Refresh token de GOOGLE OAuth (cifrado AES-256-GCM). Lo usan los módulos
+  //    calendar/drive para llamar a las APIs de Google en background. NO confundir
+  //    con el refresh token de SESIÓN de la app, que vive hasheado en
+  //    Session.refreshTokenHash (modelo de abajo). Comparten el nombre "refresh"
+  //    pero son cosas distintas — por eso se aclara acá en vez de renombrar.
+  refreshToken  String?  @map("refresh_token")
+  status        UserStatus @default(ACTIVE)
+  // —— Jira (integración F2B) ——
+  jiraRefreshToken      String?   @map("jira_refresh_token")        // cifrado AES-256-GCM
+  jiraCloudId           String?   @map("jira_cloud_id")
+  jiraSiteUrl           String?   @map("jira_site_url")
+  jiraConnectedAt       DateTime? @map("jira_connected_at")
+  jiraLastSyncAt        DateTime? @map("jira_last_sync_at")
+  jiraReconnectRequired   Boolean   @default(false) @map("jira_reconnect_required")
+  // —— Google (token revocado) ——
+  googleReconnectRequired Boolean   @default(false) @map("google_reconnect_required")
+  // ————————————————————————————
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @default(now()) @updatedAt @map("updated_at")
+  apiKey        String?   @map("api_key")  //Guardo la apikey como string? porque la llave la tiene solo el ADMIN
 
   // Relaciones
-  activities    DailyActivity[]
-  reports       Report[]
+  activities      DailyActivity[]
+  reports         Report[]
+  jiraOAuthStates JiraOAuthState[]
+  sessions        Session[]
 
+  // El dispatcher del batch consulta cada minuto por (status, role, workEndTime).
+  // Índice defensivo para que ese match sea un lookup y no un seq scan (ver SPEC §10).
+  @@index([status, role, workEndTime])
   @@map("users") // Buenas prácticas: la tabla en SQL se llamará "users" en minúscula
+}
+
+// Sesión de la app: 1 fila por login activo. Guarda SOLO el hash del refresh token
+// (el valor plano vive en la cookie HttpOnly del browser). La rotación y la
+// reuse-detection se manejan en auth.controller (refresh/logout).
+model Session {
+  id               String    @id @default(uuid())
+  userId           String    @map("user_id")
+  refreshTokenHash String    @unique @map("refresh_token_hash") // SHA-256 del token plano
+  userAgent        String?   @map("user_agent")
+  ip               String?
+  expiresAt        DateTime  @map("expires_at")
+  revokedAt        DateTime? @map("revoked_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+// Estado del flujo OAuth 3LO de Jira (vive minutos; se borra al consumir el callback)
+model JiraOAuthState {
+  state     String   @id // crypto.randomBytes(32).toString('hex')
+  userId    String   @map("user_id")
+  expiresAt DateTime @map("expires_at") // now() + 10 min
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("jira_oauth_states")
 }
 
 model DailyActivity {
   id           String   @id @default(uuid())
   userId       String   @map("user_id")
   // TODO: Migrar a enum cuando se integre Google APIs y Jira (ver valores reales devueltos por las APIs)
-  source       String   // Ej: 'calendar', 'drive'
+  title        String?  // Título de la actividad (ej: summary del evento de Calendar)
+  source       String   // Ej: 'calendar', 'drive', 'jira'
   // TODO: Migrar a enum cuando se integre Google APIs y Jira (ver valores reales devueltos por las APIs)
-  activityType String   @map("activity_type") // Ej: 'meeting', 'edit'
+  activityType String   @map("activity_type") // Acción realizada: 'create', 'edit', 'rename', 'permissionChange', 'meeting', etc.
+  fileType     String?  @map("file_type")    // Tipo de archivo: 'document', 'spreadsheet', 'presentation', etc.
+  externalId   String?  @map("external_id") // Clave externa para idempotencia (Jira la setea siempre)
   startTime    DateTime @map("start_time")
   endTime      DateTime @map("end_time")
   metadata     Json?    // Para guardar datos dinámicos de Google
@@ -63,6 +128,10 @@ model DailyActivity {
 
   // Índices para optimizar queries frecuentes
   @@index([userId, startTime])
+  @@index([userId, source, startTime])
+  // TODO: este unique no previene duplicados cuando externalId es NULL (Calendar y Drive no lo setean).
+  //       Agregar deduplicación en el service de Calendar/Drive antes de persistir, o forzar externalId NOT NULL para todas las fuentes.
+  @@unique([userId, source, externalId])
   @@map("daily_activities")
 }
 
@@ -70,8 +139,10 @@ model Report {
   id           String   @id @default(uuid())
   userId       String   @map("user_id")
   reportDate   DateTime @db.Date @map("report_date")
-  aiSummary    String?  @map("ai_summary")
-  finalContent String?  @map("final_content")
+  totalHours   Float?       @map("total_hours")
+  content      Json?
+  xlsxUrl      String?  @db.VarChar(255) @map("xlsx_url")
+  sentAt       DateTime? @map("sent_at")
   status       ReportStatus @default(PENDING)
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @default(now()) @updatedAt @map("updated_at")

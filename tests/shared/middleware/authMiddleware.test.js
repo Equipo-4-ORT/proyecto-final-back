@@ -1,59 +1,62 @@
 // Archivo: tests/shared/middleware/authMiddleware.test.js
+// El access token ahora viaja en una cookie HttpOnly (antes: header Authorization).
 
 const jwt = require('jsonwebtoken');
 const { authMiddleware } = require('../../../src/shared/middleware');
 const logger = require('../../../src/shared/utils/logger');
 
-// Mockeamos dependencias externas para aislar el test
 jest.mock('jsonwebtoken');
 jest.mock('../../../src/shared/utils/logger', () => ({
   error: jest.fn(),
+}));
+// requireValidGoogleToken (re-exportado por index.js) depende de prisma.
+jest.mock('../../../src/shared/database/prisma', () => ({
+  user: { findUnique: jest.fn() },
+}));
+jest.mock('../../../src/shared/utils/crypto', () => ({
+  encrypt: jest.fn(),
+  decrypt: jest.fn(),
 }));
 
 describe('Middleware: authMiddleware', () => {
   let req, res, next;
 
-  // Se ejecuta antes de cada test para reiniciar el estado
   beforeEach(() => {
-    req = {
-      headers: {},
-    };
+    req = { cookies: {} };
     res = {
       status: jest.fn().mockReturnThis(),
       json: jest.fn(),
     };
     next = jest.fn();
 
-    // Seteamos la variable de entorno necesaria
     process.env.JWT_SECRET = 'super-secret-test-key';
+    delete process.env.JWT_ACCESS_SECRET;
 
-    // Limpiamos los mocks
     jest.clearAllMocks();
   });
 
-  test('1. Debería retornar 401 si no hay header Authorization', () => {
-    // Act
+  test('1. Retorna 401 si no hay cookie access_token', () => {
     authMiddleware(req, res, next);
 
-    // Assert
     expect(res.status).toHaveBeenCalledWith(401);
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ error: 'No autorizado' }));
     expect(next).not.toHaveBeenCalled();
   });
 
-  test('2. Debería inyectar req.user y llamar a next() con un JWT válido', () => {
-    // Arrange
-    req.headers.authorization = 'Bearer token-super-valido';
-    // El JWT se firma con { sub: user.id, ... }, por eso el payload tiene sub y no id
-    const mockPayload = { sub: 'uuid-123', email: 'dev@test.com', role: 'ADMIN' };
+  test('1b. Retorna 401 si req.cookies es undefined (sin cookie-parser)', () => {
+    authMiddleware({}, res, next);
 
-    // Simulamos que jwt.verify funciona y devuelve nuestro payload
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  test('2. Inyecta req.user y llama next() con un JWT válido en la cookie', () => {
+    req.cookies.access_token = 'token-super-valido';
+    const mockPayload = { sub: 'uuid-123', email: 'dev@test.com', role: 'ADMIN' };
     jwt.verify.mockReturnValue(mockPayload);
 
-    // Act
     authMiddleware(req, res, next);
 
-    // Assert
     expect(jwt.verify).toHaveBeenCalledWith('token-super-valido', process.env.JWT_SECRET);
     expect(req.user).toEqual({
       id: 'uuid-123',
@@ -63,41 +66,40 @@ describe('Middleware: authMiddleware', () => {
     expect(next).toHaveBeenCalledTimes(1);
   });
 
-  test('3. Debería retornar 401 específico si el token expiró', () => {
-    // Arrange
-    req.headers.authorization = 'Bearer token-viejito';
+  test('2b. Usa JWT_ACCESS_SECRET si está definido (alias JWT_SECRET de respaldo)', () => {
+    process.env.JWT_ACCESS_SECRET = 'access-secret';
+    req.cookies.access_token = 'tok';
+    jwt.verify.mockReturnValue({ sub: 'u', email: 'e', role: 'EMPLOYEE' });
+
+    authMiddleware(req, res, next);
+
+    expect(jwt.verify).toHaveBeenCalledWith('tok', 'access-secret');
+  });
+
+  test('3. Retorna 401 específico si el token expiró', () => {
+    req.cookies.access_token = 'token-viejito';
     const expiredError = new Error('jwt expired');
     expiredError.name = 'TokenExpiredError';
-
-    // Simulamos que jwt.verify lanza el error de expiración
     jwt.verify.mockImplementation(() => {
       throw expiredError;
     });
 
-    // Act
     authMiddleware(req, res, next);
 
-    // Assert
     expect(logger.error).toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(401);
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ error: 'Token expirado' }));
     expect(next).not.toHaveBeenCalled();
   });
 
-  test('4. Debería retornar 401 genérico si el token es inválido', () => {
-    // Arrange
-    req.headers.authorization = 'Bearer token-falso-o-modificado';
-    const invalidError = new Error('invalid signature');
-
-    // Simulamos que jwt.verify lanza un error de firma
+  test('4. Retorna 401 genérico si el token es inválido', () => {
+    req.cookies.access_token = 'token-falso-o-modificado';
     jwt.verify.mockImplementation(() => {
-      throw invalidError;
+      throw new Error('invalid signature');
     });
 
-    // Act
     authMiddleware(req, res, next);
 
-    // Assert
     expect(logger.error).toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(401);
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ error: 'Token inválido' }));
